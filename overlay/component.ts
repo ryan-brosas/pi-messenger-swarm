@@ -2,9 +2,9 @@
  * Pi Messenger - Swarm Overlay Component
  */
 
-import type { Component, Focusable, TUI } from '@mariozechner/pi-tui';
-import { truncateToWidth, visibleWidth } from '@mariozechner/pi-tui';
-import type { Theme } from '@mariozechner/pi-coding-agent';
+import type { Component, Focusable, TUI } from '@earendil-works/pi-tui';
+import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
+import type { Theme } from '@earendil-works/pi-coding-agent';
 import type { MessengerState, Dirs } from '../lib.js';
 import { displayChannelLabel } from '../channel.js';
 import { getEffectiveSessionId } from '../store/shared.js';

@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Dirs, MessengerState } from '../lib.js';
 
-vi.mock('@mariozechner/pi-tui', () => ({
+vi.mock('@earendil-works/pi-tui', () => ({
   truncateToWidth: (text: string, width: number) =>
     text.length > width ? text.slice(0, Math.max(0, width)) : text,
   visibleWidth: (text: string) => text.replace(/\x1b\[[0-9;]*m/g, '').length,

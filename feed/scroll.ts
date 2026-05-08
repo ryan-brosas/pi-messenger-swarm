@@ -8,7 +8,7 @@
  */
 
 import type { FeedEvent } from './index.js';
-import type { Theme } from '@mariozechner/pi-coding-agent';
+import type { Theme } from '@earendil-works/pi-coding-agent';
 import { renderFeedSection } from '../overlay/render-exports.js';
 import {
   type FeedScrollState,

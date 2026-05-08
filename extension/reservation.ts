@@ -2,7 +2,7 @@
  * Reservation enforcement — blocks edit/write to files reserved by other agents.
  */
 
-import type { ExtensionContext } from '@mariozechner/pi-coding-agent';
+import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 import type { MessengerState, Dirs } from '../lib.js';
 import { extractFolder } from '../lib.js';
 import * as store from '../store.js';

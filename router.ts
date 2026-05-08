@@ -2,7 +2,7 @@
  * Pi Messenger action router (swarm-first).
  */
 
-import type { ExtensionContext } from '@mariozechner/pi-coding-agent';
+import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 import type { MessengerState, Dirs, AgentMailMessage, NameThemeConfig } from './lib.js';
 import * as handlers from './handlers.js';
 import type { MessengerActionParams } from './action-types.js';

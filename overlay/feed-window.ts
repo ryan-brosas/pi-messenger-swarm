@@ -1,4 +1,4 @@
-import type { Theme } from '@mariozechner/pi-coding-agent';
+import type { Theme } from '@earendil-works/pi-coding-agent';
 import type { FeedEvent } from '../feed/index.js';
 import { getFeedLineCount, readFeedEventsByRange } from '../feed/index.js';
 import { calculateRenderedLines, jumpToBottom, maintainScrollOnNewEvents } from '../feed/scroll.js';

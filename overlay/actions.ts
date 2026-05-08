@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { matchesKey, type TUI } from '@mariozechner/pi-tui';
+import { matchesKey, type TUI } from '@earendil-works/pi-tui';
 import type { AgentMailMessage, Dirs, MessengerState } from '../lib.js';
 import { MAX_CHAT_HISTORY } from '../lib.js';
 import { getActiveAgents, resolveTargetChannel } from '../store.js';

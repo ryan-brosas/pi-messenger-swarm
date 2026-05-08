@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@mariozechner/pi-tui', () => ({
+vi.mock('@earendil-works/pi-tui', () => ({
   truncateToWidth: (s: string, _width: number) => s,
   visibleWidth: (s: string) => s.length,
 }));

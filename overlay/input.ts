@@ -1,4 +1,4 @@
-import { matchesKey, type TUI } from '@mariozechner/pi-tui';
+import { matchesKey, type TUI } from '@earendil-works/pi-tui';
 import type { Dirs, MessengerState } from '../lib.js';
 import * as taskStore from '../swarm/task-store.js';
 import { listSpawned, listSpawnedHistory } from '../swarm/spawn.js';

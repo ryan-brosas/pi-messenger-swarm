@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import type { AgentMailMessage, Dirs, MessengerState } from '../lib.js';
 import { extractFolder, MAX_CHAT_HISTORY } from '../lib.js';
 import type { MessengerConfig } from '../config.js';

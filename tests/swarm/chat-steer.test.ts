@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@mariozechner/pi-tui', () => ({
+vi.mock('@earendil-works/pi-tui', () => ({
   matchesKey: (data: string, key: string) => {
     if (key === 'escape') return data === '\x1b';
     if (key === 'enter') return data === '\r';
@@ -40,7 +40,7 @@ vi.mock('../../swarm/task-actions.js', () => ({
 
 import { createMessengerViewState, handleMessageInput } from '../../overlay/actions.js';
 import type { MessengerState, Dirs } from '../../lib.js';
-import type { TUI } from '@mariozechner/pi-tui';
+import type { TUI } from '@earendil-works/pi-tui';
 
 function makeState(): MessengerState {
   return {

@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import { execSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
-import type { ExtensionContext } from '@mariozechner/pi-coding-agent';
+import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 import type { AgentRegistration, Dirs, MessengerState } from '../lib.js';
 import { isProcessAlive } from '../lib.js';
 import {

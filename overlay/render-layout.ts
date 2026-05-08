@@ -5,7 +5,7 @@
  * stays focused on lifecycle, caching, and assembly.
  */
 
-import type { Theme } from '@mariozechner/pi-coding-agent';
+import type { Theme } from '@earendil-works/pi-coding-agent';
 import type { Dirs, MessengerState } from '../lib.js';
 import type { SwarmTask as Task, SpawnedAgent } from '../swarm/types.js';
 import type { LiveWorkerInfo } from '../swarm/live-progress.js';
