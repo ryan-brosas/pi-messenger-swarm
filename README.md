@@ -39,7 +39,7 @@ From git (Pi package settings):
 
 ```json
 {
-  "packages": ["git:github.com/monotykamary/pi-messenger-swarm@main"]
+  "packages": ["https://github.com/monotykamary/pi-messenger-swarm@main"]
 }
 ```
 
