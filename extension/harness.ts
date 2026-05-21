@@ -73,7 +73,7 @@ export interface HarnessServerController {
   stop(): void;
 }
 
-export function createHarnessServer(): HarnessServerController {
+export function createHarnessServer(messengerDir: string): HarnessServerController {
   let harnessProcess: ChildProcess | null = null;
 
   function start(): void {
@@ -84,11 +84,12 @@ export function createHarnessServer(): HarnessServerController {
 
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>),
+      // Always override so the harness server writes to the same
+      // directory as the extension, even though the harness is spawned
+      // with cwd: projectRoot (the pi-messenger repo).
+      PI_MESSENGER_DIR: messengerDir,
     };
 
-    if (process.env.PI_MESSENGER_DIR) {
-      env.PI_MESSENGER_DIR = process.env.PI_MESSENGER_DIR;
-    }
     if (process.env.PI_MESSENGER_GLOBAL) {
       env.PI_MESSENGER_GLOBAL = process.env.PI_MESSENGER_GLOBAL;
     }

@@ -84,6 +84,7 @@ export class MessengerOverlay implements Component, Focusable {
     lines: string[];
   } | null = null;
   private discoveredChannelsCache: { channels: string[]; expiresAt: number } | null = null;
+  private autoSwitchedToChannel = new Set<string>();
 
   constructor(
     private tui: TUI,
@@ -185,6 +186,35 @@ export class MessengerOverlay implements Component, Focusable {
       }
     }
     return all;
+  }
+
+  /**
+   * Auto-switch to a newly discovered channel (e.g. one created by a subagent).
+   * Switches at most once per channel to avoid fighting with the user's
+   * manual channel selection.
+   */
+  private autoSwitchToNewChannel(): void {
+    const onDisk = this.getDiscoveredChannelIds();
+
+    // Find channels that exist on disk but aren't joined and haven't been
+    // auto-switched to yet. These are likely created by subagents.
+    const joinedSet = new Set(this.state.joinedChannels);
+    const newChannel = onDisk.find(
+      (id) => !joinedSet.has(id) && !this.autoSwitchedToChannel.has(id)
+    );
+
+    if (newChannel) {
+      this.autoSwitchedToChannel.add(newChannel);
+      const switched = this.callbacks.onSwitchChannel?.(newChannel);
+      if (switched) {
+        setNotification(
+          this.viewState,
+          this.tui,
+          true,
+          `Auto-switched to ${displayChannelLabel(newChannel)}`
+        );
+      }
+    }
   }
 
   private getFeedLineCountCached(channelId: string): number {
@@ -332,6 +362,10 @@ export class MessengerOverlay implements Component, Focusable {
   }
 
   render(_width: number): string[] {
+    // Auto-switch to newly discovered channels (e.g. created by subagents).
+    // Runs on each render and switches at most once per new channel.
+    this.autoSwitchToNewChannel();
+
     const w = this.width;
     const innerW = w - 2;
     const sectionW = innerW - 2;

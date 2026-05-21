@@ -163,7 +163,7 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
     );
   }
 
-  const harnessServer = createHarnessServer();
+  const harnessServer = createHarnessServer(dirs.base);
 
   pi.registerCommand('messenger', {
     description: "Open messenger overlay, or 'config' to manage settings",
@@ -215,7 +215,7 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
           );
         },
         onSwitchChannel: (channelId) => {
-          const switched = store.joinChannel(state, dirs, channelId);
+          const switched = store.joinChannel(state, dirs, channelId, { create: true });
           if (!switched.success) return false;
           resetChannelScopedUiState();
           updateStatus(ctx);
