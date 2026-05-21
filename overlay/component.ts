@@ -55,6 +55,9 @@ export class MessengerOverlay implements Component, Focusable {
   get width(): number {
     return Math.min(100, Math.max(40, process.stdout.columns ?? 90));
   }
+  get height(): number {
+    return Math.max(20, (process.stdout.rows ?? 24) - 2);
+  }
   focused = false;
 
   private viewState: MessengerViewState = createMessengerViewState();
@@ -398,6 +401,7 @@ export class MessengerOverlay implements Component, Focusable {
       ensureFeedWindowInitialized: (channelId, totalFeedLines) =>
         this.ensureFeedWindowInitialized(channelId, totalFeedLines),
       getRenderedFeedLineCount: (sectionWidth) => this.getRenderedFeedLineCount(sectionWidth),
+      termRows: this.height,
     });
   }
 
@@ -451,7 +455,7 @@ export class MessengerOverlay implements Component, Focusable {
     const sectionSeparator = this.theme.fg('dim', '─'.repeat(sectionW));
 
     const channelId = this.currentChannel();
-    const termRows = process.stdout.rows ?? 24;
+    const termRows = this.height;
     const initialCachedRender = this.renderCache;
     const ultraEarlyCacheKey = this.buildRenderCacheKey({
       width: w,

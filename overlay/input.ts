@@ -54,6 +54,7 @@ export interface OverlayInputParams {
   ) => number;
   ensureFeedWindowInitialized: (channelId: string, totalFeedLines: number) => void;
   getRenderedFeedLineCount: (sectionWidth: number) => number;
+  termRows: number;
 }
 
 export function handleOverlayInput({
@@ -73,6 +74,7 @@ export function handleOverlayInput({
   estimateFeedViewportHeight,
   ensureFeedWindowInitialized,
   getRenderedFeedLineCount,
+  termRows,
 }: OverlayInputParams): void {
   cancelCompletionTimer();
 
@@ -167,7 +169,7 @@ export function handleOverlayInput({
 
   const channelId = currentChannel();
   const totalFeedLines = getFeedLineCount(cwd, channelId);
-  const termRows = process.stdout.rows ?? 24;
+  // termRows comes from the overlay's capped height
   const sectionWidth = width - 4;
   const taskList = taskStore.getTasks(cwd, getEffectiveSessionId(cwd, state));
   const feedHeight = estimateFeedViewportHeight(

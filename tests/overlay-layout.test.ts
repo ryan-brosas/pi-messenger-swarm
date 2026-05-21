@@ -142,7 +142,7 @@ describe('overlay layout', () => {
       overlay.dispose();
 
       const visibleMessages = extractVisibleMessages(frame);
-      expect(visibleMessages).toHaveLength(6);
+      expect(visibleMessages).toHaveLength(10);
       expect(visibleMessages.at(-1)).toContain('Msg 9');
     } finally {
       process.chdir(previousCwd);
