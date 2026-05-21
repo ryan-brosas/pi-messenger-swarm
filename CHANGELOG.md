@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.25.8](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.7...v0.25.8) (2026-05-21)
+
+
+### Features
+
+* **overlay:** discover subagent-created channels in channel cycling ([0c1c4b2](https://github.com/monotykamary/pi-messenger-swarm/commit/0c1c4b2e0570cbe96be7e8812719400f6946dea4))
+* **overlay:** session-aware channel discovery ([f0b65ec](https://github.com/monotykamary/pi-messenger-swarm/commit/f0b65ec48dcfb1a486b2c3c1f05d40725856a39f))
+* **swarm:** spawn subagents in RPC mode with push message delivery ([5de9d97](https://github.com/monotykamary/pi-messenger-swarm/commit/5de9d97e1a8a5e578f5dd36d55e57badfb64e76d))
+
+
+### Bug Fixes
+
+* **harness,overlay:** resolve cwd from PI_MESSENGER_DIR, reset feed on channel switch ([6d30b8f](https://github.com/monotykamary/pi-messenger-swarm/commit/6d30b8faf4a841e2d379c8ab3db9ae8d28d21fa7))
+* **harness:** pass project cwd explicitly as PI_MESSENGER_CWD ([4c2388b](https://github.com/monotykamary/pi-messenger-swarm/commit/4c2388bd38fd7ca2196993b3be34445ac262eb78))
+* **harness:** resolve cwd from registration, not process.cwd() ([68354e3](https://github.com/monotykamary/pi-messenger-swarm/commit/68354e3539b8d4af130e677107dcf44afb3cb591))
+* **overlay:** auto-switch to subagent channels and align harness dirs ([cf065b7](https://github.com/monotykamary/pi-messenger-swarm/commit/cf065b7c546c2924a9d67445c4ae3571a63a633f))
+* **overlay:** filter discovered channels to active only ([13698e6](https://github.com/monotykamary/pi-messenger-swarm/commit/13698e68a48aa80addf0d4a28f147857b14d3e40))
+* **overlay:** hide stale named channels from other sessions ([91f4907](https://github.com/monotykamary/pi-messenger-swarm/commit/91f4907faead30a28a9fd733a622c8e1d8398f7a))
+* **swarm:** cascade shutdown from main agent to spawned RPC subagents ([504dbb7](https://github.com/monotykamary/pi-messenger-swarm/commit/504dbb733d8454b428ed76b281f8489e00beb6d1))
+
 ### [0.25.7](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.6...v0.25.7) (2026-05-21)
 
 
