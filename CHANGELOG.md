@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.25.6](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.5...v0.25.6) (2026-05-21)
+
+
+### Features
+
+* add channels command and fix spawn channel inheritance ([df49599](https://github.com/monotykamary/pi-messenger-swarm/commit/df49599d7a970d3e5b7ffbe82dd6ff27cea796e0))
+
 ### [0.25.5](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.4...v0.25.5) (2026-05-20)
 
 
