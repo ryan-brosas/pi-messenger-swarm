@@ -188,7 +188,8 @@ function buildSwarmProtocol(): string {
     '5. Task completion is required: Mark the task done upon mission completion: `pi-messenger-swarm task done <taskId> "Concrete accomplishment with evidence"`.',
     '6. Be concise, evidence-based, and stay in role.',
     '7. Clarify ambiguity early: if mission scope, expected output format, or framing is unclear or seems incomplete, send a brief targeted question via `pi-messenger-swarm send AgentName "..."` before proceeding. A 30-second alignment check prevents off-target work.',
-    '8. Exit when mission is complete: use bash({ command: "exit 0" }) to self-terminate. Remain active only if explicitly instructed (e.g., council discussions, monitoring, or awaiting further input). Do not stay alive indefinitely unless serving an ongoing purpose.',
+    '8. Check channel feed between turns: `pi-messenger-swarm feed --limit 10`. If a teammate sent you a message, respond before proceeding. Messages are channel-mediated — reading the feed is required to receive them.',
+    '9. Exit when mission is complete: use bash({ command: "exit 0" }) to self-terminate. Remain active only if explicitly instructed (e.g., council discussions, monitoring, or awaiting further input). Do not stay alive indefinitely unless serving an ongoing purpose.',
   ].join('\n');
 }
 
