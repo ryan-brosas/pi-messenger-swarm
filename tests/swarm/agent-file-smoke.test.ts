@@ -24,7 +24,6 @@ vi.mock('../../swarm/progress.js', () => ({
     recentTools: [],
     status: 'running',
   }),
-  parseJsonlLine: () => null,
   updateProgress: () => {},
 }));
 

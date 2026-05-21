@@ -46,15 +46,6 @@ export function createProgress(agent: string): AgentProgress {
   };
 }
 
-export function parseJsonlLine(line: string): PiEvent | null {
-  if (!line.trim()) return null;
-  try {
-    return JSON.parse(line);
-  } catch {
-    return null;
-  }
-}
-
 export function updateProgress(progress: AgentProgress, event: PiEvent, startTime: number): void {
   progress.durationMs = Date.now() - startTime;
 
@@ -99,18 +90,6 @@ function extractArgsPreview(args?: Record<string, unknown>): string {
     if (args[key] && typeof args[key] === 'string') {
       const value = (args[key] as string).replaceAll('\n', ' ').replaceAll('\r', '');
       return value.length > 60 ? `${value.slice(0, 57)}...` : value;
-    }
-  }
-  return '';
-}
-
-function getFinalOutput(messages: PiEvent[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (msg.type === 'message_end' && msg.message?.role === 'assistant') {
-      for (const part of msg.message.content ?? []) {
-        if (part.type === 'text' && part.text) return part.text;
-      }
     }
   }
   return '';
