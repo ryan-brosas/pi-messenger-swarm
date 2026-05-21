@@ -5,6 +5,8 @@
 import type { Component, Focusable, TUI } from '@earendil-works/pi-tui';
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 import type { Theme } from '@earendil-works/pi-coding-agent';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { MessengerState, Dirs } from '../lib.js';
 import { displayChannelLabel, listChannels } from '../channel.js';
 import { getEffectiveSessionId } from '../store/shared.js';
@@ -144,15 +146,31 @@ export class MessengerOverlay implements Component, Focusable {
   }
 
   /**
-   * Get the list of all channel IDs on disk, cached with a TTL.
-   * Avoids redundant file I/O on every render.
+   * Get the list of active channel IDs on disk, cached with a TTL.
+   * Only includes named channels and session channels with recent activity
+   * (matches the CLI `channels` behavior). Avoids redundant file I/O.
    */
   private getDiscoveredChannelIds(): string[] {
     const now = Date.now();
     if (this.discoveredChannelsCache && this.discoveredChannelsCache.expiresAt > now) {
       return this.discoveredChannelsCache.channels;
     }
-    const channels = listChannels(this.dirs).map((c) => c.id);
+    const activeThreshold = 30 * 60 * 1000; // 30 minutes
+    const channels = listChannels(this.dirs)
+      .filter((c) => {
+        // Named channels are always active
+        if (c.type === 'named') return true;
+        // Session channels: only if the main agent has joined them
+        if (this.state.joinedChannels.includes(c.id)) return true;
+        // Unjoined session channels: only if they have recent activity
+        const filePath = path.join(this.dirs.base, 'channels', `${c.id}.jsonl`);
+        try {
+          const stat = fs.statSync(filePath);
+          if (now - stat.mtimeMs < activeThreshold) return true;
+        } catch {}
+        return false;
+      })
+      .map((c) => c.id);
     this.discoveredChannelsCache = { channels, expiresAt: now + 2000 };
     return channels;
   }
