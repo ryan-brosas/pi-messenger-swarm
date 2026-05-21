@@ -594,6 +594,24 @@ export function stopAllSpawned(cwd?: string): void {
   }
 }
 
+/**
+ * Force-kill all spawned agents with SIGKILL.
+ * Used as a fallback after graceful SIGTERM didn't work in time.
+ */
+export function forceKillAllSpawned(cwd?: string): void {
+  for (const [_id, runtime] of runtimes.entries()) {
+    if (cwd && runtime.record.cwd !== cwd) continue;
+    const proc = (runtime.rpc as any).process;
+    if (proc && proc.exitCode === null) {
+      try {
+        proc.kill('SIGKILL');
+      } catch {
+        // Already dead
+      }
+    }
+  }
+}
+
 export function cleanupExitedSpawned(cwd: string, sessionId: string): number {
   let finalized = 0;
   for (const [id, runtime] of runtimes.entries()) {

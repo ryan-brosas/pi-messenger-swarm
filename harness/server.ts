@@ -33,7 +33,7 @@ import {
   patchChannelSessionId,
 } from '../channel.js';
 import { ensureDirSync, getGitBranch, normalizeCwd } from '../store/shared.js';
-import { steerAgentByName } from '../swarm/spawn.js';
+import { steerAgentByName, stopAllSpawned, forceKillAllSpawned } from '../swarm/spawn.js';
 
 function getMessengerDirs(): Dirs {
   const baseDir =
@@ -449,12 +449,14 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
 
   // Graceful shutdown
   if (req.method === 'POST' && url.pathname === '/quit') {
+    stopAllSpawned();
     res.writeHead(200, TEXT_JSON);
     res.end(JSON.stringify({ ok: true }));
     setTimeout(() => {
+      forceKillAllSpawned();
       server.close();
       process.exit(0);
-    }, 100);
+    }, 2000);
     return;
   }
 
@@ -476,11 +478,16 @@ server.listen(PORT, '127.0.0.1', () => {
   serverLog(`harness started on port ${actualPort}`);
 });
 
-// Graceful shutdown on signals
+// Graceful shutdown — kill all spawned RPC agents before exiting
 const shutdown = (signal: string) => {
   serverLog(`received ${signal}, shutting down`);
+  stopAllSpawned();
   server.close();
-  process.exit(0);
+  // Wait 2s for graceful exit, then force-kill any stragglers
+  setTimeout(() => {
+    forceKillAllSpawned();
+    process.exit(0);
+  }, 2000);
 };
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
