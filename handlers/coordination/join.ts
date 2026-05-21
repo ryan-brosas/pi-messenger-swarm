@@ -23,11 +23,26 @@ export function executeJoin(
   const cwd = ctx.cwd ?? process.cwd();
 
   if (!state.registered) {
+    // Save the channel that may have been set by resolveAgentState
+    // (from x-messenger-channel header for spawned agents), before
+    // register -> ensureStateChannels potentially overwrites it with
+    // a new session channel.
+    const preexistingChannel = state.currentChannel;
+
     if (!store.register(state, dirs, ctx, nameTheme)) {
       return result('Failed to join the agent mesh. Check logs for details.', {
         mode: 'join',
         error: 'registration_failed',
       });
+    }
+
+    // If register overwrote a channel that was set externally (e.g., by
+    // resolveAgentState from x-messenger-channel header), restore it.
+    // This ensures spawned agents inherit the parent channel even though
+    // ensureStateChannels reads process.env.PI_MESSENGER_CHANNEL which
+    // belongs to the harness server, not the CLI caller.
+    if (preexistingChannel && !channel && state.currentChannel !== preexistingChannel) {
+      store.joinChannel(state, dirs, preexistingChannel, { create: true });
     }
 
     if (channel) {

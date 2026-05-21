@@ -36,6 +36,9 @@ export interface MessengerActionParams {
   autoRegisterPath?: 'add' | 'remove' | 'list';
   spec?: string; // Spec file path for join action
 
+  // Channels
+  showAll?: boolean;
+
   // Spawn
   role?: string;
   persona?: string;

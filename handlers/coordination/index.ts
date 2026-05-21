@@ -5,3 +5,4 @@ export { executeWhois } from './whois.js';
 export { executeReserve, executeRelease } from './reservations.js';
 export { executeSend, executeFeed } from './messaging.js';
 export { executeRename } from './rename.js';
+export { executeChannels } from './channels.js';

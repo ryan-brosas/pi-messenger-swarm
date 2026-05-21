@@ -215,6 +215,9 @@ export async function executeAction(
       );
     }
 
+    case 'channels':
+      return handlers.executeChannels(state, dirs, cwd, params.showAll ? true : undefined);
+
     case 'spawn':
       return executeSpawn(op, params, state, cwd, sessionId);
 

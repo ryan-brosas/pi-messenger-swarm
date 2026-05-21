@@ -10,4 +10,5 @@ export {
   executeSend,
   executeFeed,
   executeRename,
+  executeChannels,
 } from './coordination/index.js';

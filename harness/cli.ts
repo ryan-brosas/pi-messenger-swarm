@@ -343,6 +343,11 @@ Usage:
   pi-messenger-swarm --status    Check if harness server is running
   pi-messenger-swarm --start     Start the harness server
   pi-messenger-swarm --stop      Stop the harness server
+  pi-messenger-swarm channels [--all]
+
+  pi-messenger-swarm --status    Check if harness server is running
+  pi-messenger-swarm --start     Start the harness server
+  pi-messenger-swarm --stop      Stop the harness server
   pi-messenger-swarm --restart    Restart the harness server
   pi-messenger-swarm --logs      Tail the server log
 
@@ -490,6 +495,12 @@ Environment:
       await postAction(buildAction({ action: 'set_status', message }));
       break;
     }
+    case 'channels': {
+      const showAll = extractFlagBool(args, 'all');
+      await postAction(buildAction({ action: 'channels', showAll: showAll || undefined }));
+      break;
+    }
+
     case 'rename': {
       const name = args[0];
       if (!name) {

@@ -68,6 +68,7 @@ pi-messenger-swarm release
 pi-messenger-swarm join [--channel dev] [--create]
 pi-messenger-swarm status
 pi-messenger-swarm list
+pi-messenger-swarm channels [--all]
 pi-messenger-swarm feed [--limit 20] [--channel dev]
 pi-messenger-swarm send AgentName "hello"
 pi-messenger-swarm send #memory "remember this"
