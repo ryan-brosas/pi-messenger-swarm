@@ -46,4 +46,5 @@ export interface MessengerActionParams {
   context?: string;
   model?: string;
   agentFile?: string;
+  messageFile?: string;
 }

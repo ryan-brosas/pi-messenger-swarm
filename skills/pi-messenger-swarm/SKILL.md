@@ -111,20 +111,23 @@ pi-messenger-swarm spawn --role Analyst --persona "Skeptical market researcher" 
 pi-messenger-swarm spawn --task-id task-1 --role Debugger "Fix the race condition"
 pi-messenger-swarm spawn --agent-file agents/researcher.md "Analyze the codebase"
 pi-messenger-swarm spawn --objective "Find bugs" --context "Focus on auth" --role Auditor "Review code"
+pi-messenger-swarm spawn --message-file /tmp/mission.txt --role Researcher
 pi-messenger-swarm spawn list
 pi-messenger-swarm spawn history
 pi-messenger-swarm spawn stop <id>
 ```
 
+> **Shell safety**: When mission text contains backticks, `${...}`, parentheses, or other shell-sensitive characters, use `--message-file <path>` instead of a positional argument. Write the prompt to a temp file first to avoid bash interpolation corrupting the mission text.
+
 ### Server management
 
-| Command                        | Behavior                    |
-| ------------------------------ | --------------------------- |
-| `pi-messenger-swarm --status`  | Print health JSON or exit 1 |
-| `pi-messenger-swarm --start`   | Start the harness server    |
-| `pi-messenger-swarm --stop`    | Graceful shutdown           |
-| `pi-messenger-swarm --restart` | Stop + start fresh          |
-| `pi-messenger-swarm --logs`    | `tail -f` the server log    |
+| Command                        | Behavior                                    |
+| ------------------------------ | ------------------------------------------- |
+| `pi-messenger-swarm --status`  | Print health JSON or exit 1                 |
+| `pi-messenger-swarm --start`   | Start the harness server                    |
+| `pi-messenger-swarm --stop`    | Graceful shutdown                           |
+| `pi-messenger-swarm --restart` | Soft restart: clear caches, preserve agents |
+| `pi-messenger-swarm --logs`    | `tail -f` the server log                    |
 
 ### JSON passthrough
 

@@ -27,7 +27,7 @@
  *   pi-messenger-swarm release
  *   pi-messenger-swarm set-status "debugging auth"
  *   pi-messenger-swarm rename NewName
- *   pi-messenger-swarm spawn --role Researcher "Analyze the protocol" [--persona "..."] [--task-id task-1] [--agent-file path] [--objective "..."] [--context "..."]
+ *   pi-messenger-swarm spawn --role Researcher "Analyze the protocol" [--persona "..."] [--task-id task-1] [--agent-file path] [--objective "..."] [--context "..."] [--message-file <path>]
  *   pi-messenger-swarm spawn list
  *   pi-messenger-swarm spawn history
  *   pi-messenger-swarm spawn stop <id>
@@ -180,6 +180,9 @@ function agentHeaders(): Record<string, string> {
   if (callerPid) headers['x-caller-pid'] = String(callerPid);
   const sessionId = readSessionIdFromFile();
   if (sessionId) headers['x-session-id'] = sessionId;
+  // Send the CLI's cwd so the server can resolve the correct project
+  // even when multiple projects share the same harness server.
+  headers['x-caller-cwd'] = process.cwd();
   // Inherited channel hint from subagent spawn (PI_MESSENGER_CHANNEL is set
   // by spawn.ts when it launches a child pi process — this is the only env var
   // still used for identity, and it's only needed on the very first subagent call).
@@ -335,7 +338,7 @@ Usage:
   pi-messenger-swarm task reset <id> [--cascade]
   pi-messenger-swarm task archive-done
 
-  pi-messenger-swarm spawn --role Researcher "Analyze X" [--persona "..."] [--task-id <id>] [--name <name>] [--agent-file <path>] [--objective "..."] [--context "..."]
+  pi-messenger-swarm spawn --role Researcher "Analyze X" [--persona "..."] [--task-id <id>] [--name <name>] [--agent-file <path>] [--objective "..."] [--context "..."] [--message-file <path>]
   pi-messenger-swarm spawn list
   pi-messenger-swarm spawn history
   pi-messenger-swarm spawn stop <id>
@@ -390,6 +393,16 @@ Environment:
 
   if (first === '--restart') {
     if (await isUp()) {
+      // Soft restart: clear config/dir caches in the running server
+      // without killing spawned agents. Falls back to full restart
+      // if the server doesn't support the /restart endpoint.
+      const { status } = await httpPost(`${BASE_URL}/restart`, '');
+      if (status === 200) {
+        const { body } = await httpGet(`${BASE_URL}/health`);
+        process.stdout.write(body + '\n');
+        return;
+      }
+      // Fallback: full stop + start if soft restart not available
       await httpPost(`${BASE_URL}/quit`, '');
       await new Promise((r) => setTimeout(r, 200));
     }
@@ -647,7 +660,7 @@ Environment:
         await postAction(buildAction({ action: 'spawn.stop', id }));
       } else {
         // spawn --role Role "mission text" [--persona "..."] [--task-id task-1] [--name name]
-        //      [--agent-file path] [--objective "..."] [--context "..."]
+        //      [--agent-file path] [--objective "..."] [--context "..."] [--message-file path]
         const role = extractFlag(args, 'role') || extractFlag(args, 'title');
         const persona = extractFlag(args, 'persona');
         const taskId = extractFlag(args, 'task-id');
@@ -655,9 +668,27 @@ Environment:
         const agentFile = extractFlag(args, 'agent-file');
         const objective = extractFlag(args, 'objective');
         const context = extractFlag(args, 'context');
-        const message = args.filter((a) => !a.startsWith('--')).join(' ');
+        const messageFile = extractFlag(args, 'message-file');
+
+        // --message-file takes priority: read mission text from a file to avoid
+        // shell interpolation of backticks, ${...}, and parentheses in the prompt.
+        let message: string | undefined;
+        if (messageFile) {
+          try {
+            message = fs.readFileSync(messageFile, 'utf-8').trim();
+          } catch (err) {
+            process.stderr.write(
+              `Error: cannot read --message-file: ${messageFile}: ${err instanceof Error ? err.message : err}\n`
+            );
+            process.exit(1);
+          }
+        } else {
+          message = args.filter((a) => !a.startsWith('--')).join(' ');
+        }
         if (!message && !agentFile) {
-          process.stderr.write('Error: spawn requires mission text or --agent-file.\n');
+          process.stderr.write(
+            'Error: spawn requires mission text, --message-file, or --agent-file.\n'
+          );
           process.exit(1);
         }
         await postAction(
@@ -668,6 +699,7 @@ Environment:
             taskId: taskId || undefined,
             name: name || undefined,
             agentFile: agentFile || undefined,
+            messageFile: messageFile || undefined,
             objective: objective || undefined,
             context: context || undefined,
             message: message || undefined,

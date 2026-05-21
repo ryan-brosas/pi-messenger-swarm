@@ -35,34 +35,67 @@ import {
 import { ensureDirSync, getGitBranch, normalizeCwd } from '../store/shared.js';
 import { steerAgentByName, stopAllSpawned, forceKillAllSpawned } from '../swarm/spawn.js';
 
-function getMessengerDirs(): Dirs {
+function getMessengerDirs(cwd?: string): Dirs {
+  const effectiveCwd = cwd ?? process.env.PI_MESSENGER_CWD ?? process.cwd();
   const baseDir =
     process.env.PI_MESSENGER_DIR ||
     (process.env.PI_MESSENGER_GLOBAL === '1'
       ? join(homedir(), '.pi/agent/messenger')
-      : join(process.cwd(), '.pi/messenger'));
+      : join(normalizeCwd(effectiveCwd), '.pi/messenger'));
   return {
     base: baseDir,
     registry: join(baseDir, 'registry'),
   };
 }
 
-const dirs = getMessengerDirs();
-const config: MessengerConfig = loadConfig(process.cwd());
-const nameTheme: NameThemeConfig = { theme: config.nameTheme, customWords: config.nameWords };
+// Bootstrap dirs from the server's startup cwd for health checks and
+// initial setup. Per-request dirs are resolved in the action handler
+// using the requesting agent's cwd from registration files.
+const startupDirs = getMessengerDirs();
 
-// Ensure channel / registry dirs exist
-ensureDirSync(dirs.registry);
-ensureDirSync(getChannelsDir(dirs));
-ensureDefaultNamedChannels(dirs);
+// Ensure channel / registry dirs exist for the startup project
+ensureDirSync(startupDirs.registry);
+ensureDirSync(getChannelsDir(startupDirs));
+ensureDefaultNamedChannels(startupDirs);
 
-const routerConfig: RouterConfig = {
-  stuckThreshold: config.stuckThreshold,
-  swarmEventsInFeed: config.swarmEventsInFeed,
-  nameTheme,
-  feedRetention: config.feedRetention,
-  maxConcurrentSpawns: config.maxConcurrentSpawns,
-};
+// Per-request directory cache: cwd → Dirs (avoids recomputing on every request).
+const dirsCache = new Map<string, Dirs>();
+
+function dirsForCwd(cwd: string): Dirs {
+  const cached = dirsCache.get(cwd);
+  if (cached) return cached;
+  const dirs = getMessengerDirs(cwd);
+  dirsCache.set(cwd, dirs);
+
+  // Ensure dirs exist for this project too
+  ensureDirSync(dirs.registry);
+  ensureDirSync(getChannelsDir(dirs));
+  ensureDefaultNamedChannels(dirs);
+
+  return dirs;
+}
+
+// Per-request config cache: cwd → config (avoids re-reading pi-messenger.json on every request).
+const configCache = new Map<string, MessengerConfig>();
+
+function configForCwd(cwd: string): MessengerConfig {
+  const cached = configCache.get(cwd);
+  if (cached) return cached;
+  const config = loadConfig(cwd);
+  configCache.set(cwd, config);
+  return config;
+}
+
+function routerConfigForCwd(cwd: string): RouterConfig {
+  const config = configForCwd(cwd);
+  return {
+    stuckThreshold: config.stuckThreshold,
+    swarmEventsInFeed: config.swarmEventsInFeed,
+    nameTheme: { theme: config.nameTheme, customWords: config.nameWords },
+    feedRetention: config.feedRetention,
+    maxConcurrentSpawns: config.maxConcurrentSpawns,
+  };
+}
 
 interface RegistrationFile {
   name: string;
@@ -74,7 +107,7 @@ interface RegistrationFile {
   joinedChannels?: string[];
 }
 
-function readRegistrations(): RegistrationFile[] {
+function readRegistrations(dirs: Dirs): RegistrationFile[] {
   try {
     const files = fs.readdirSync(dirs.registry).filter((f) => f.endsWith('.json'));
     return files
@@ -107,6 +140,7 @@ function readRegistrations(): RegistrationFile[] {
  *    the `join` action will register a new agent.
  */
 function resolveAgentState(
+  dirs: Dirs,
   callerPid?: number,
   channelHint?: string
 ): {
@@ -125,7 +159,7 @@ function resolveAgentState(
   let joinedChannels: string[] = [];
   let sessionIdFromDisk = '';
 
-  const regs = readRegistrations();
+  const regs = readRegistrations(dirs);
 
   // Strategy 1: match by caller PID
   if (callerPid) {
@@ -217,7 +251,7 @@ function resolveAgentState(
       model: '',
       gitBranch,
       spec: undefined,
-      scopeToFolder: config.scopeToFolder,
+      scopeToFolder: configForCwd(resolvedCwd).scopeToFolder,
       isHuman: false,
       session: { toolCalls: 0, tokens: 0, filesModified: [] },
       activity: { lastActivityAt: new Date().toISOString() },
@@ -326,7 +360,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   if (req.method === 'GET' && url.pathname === '/health') {
     const agents: string[] = [];
     try {
-      for (const f of fs.readdirSync(dirs.registry)) {
+      for (const f of fs.readdirSync(startupDirs.registry)) {
         if (f.endsWith('.json')) agents.push(f.replace(/\.json$/, ''));
       }
     } catch {}
@@ -375,13 +409,33 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     const callerPid = callerPidStr ? parseInt(callerPidStr, 10) : undefined;
     const sessionId = header(req, 'x-session-id');
     const channelHint = header(req, 'x-messenger-channel');
+    // The CLI sends its cwd so the server can resolve the correct project
+    // even when multiple projects share the same harness server.
+    const callerCwd = header(req, 'x-caller-cwd');
 
     serverLog(
-      `action: ${action} caller_pid: ${callerPid || '(none)'} session: ${sessionId || '(none)'} channel: ${channelHint || '(auto)'}`
+      `action: ${action} caller_pid: ${callerPid || '(none)'} session: ${sessionId || '(none)'} channel: ${channelHint || '(auto)'} caller_cwd: ${callerCwd || '(none)'}`
     );
 
+    // Determine the project cwd for this request.
+    // Priority: x-caller-cwd header > registration file's cwd > PI_MESSENGER_CWD env > server process.cwd()
+    // This ensures each project gets its own dirs (channels, registry) and config
+    // even when multiple projects share the same harness server.
+    let projectCwd = callerCwd
+      ? normalizeCwd(callerCwd)
+      : normalizeCwd(process.env.PI_MESSENGER_CWD ?? process.cwd());
+    // Pre-resolve state from the startup dirs to read the registration's cwd
+    const preState = resolveAgentState(startupDirs, callerPid, channelHint);
+    // If the matched registration has a cwd, prefer it (it reflects the agent's project)
+    if (preState.state.registered && preState.resolvedCwd) {
+      projectCwd = preState.resolvedCwd;
+    }
+    // Re-resolve with project-specific dirs and config
+    const dirs = dirsForCwd(projectCwd);
+    const routerConfig = routerConfigForCwd(projectCwd);
+
     // Build per-request state from disk
-    const { state, resolvedCwd } = resolveAgentState(callerPid, channelHint);
+    const { state, resolvedCwd } = resolveAgentState(dirs, callerPid, channelHint);
     // Use session ID from header (written by extension to .pi/messenger/session-id)
     // if available, otherwise fall back to the state's contextSessionId (from disk).
     const effectiveSessionId = sessionId || state.contextSessionId || '';
@@ -458,6 +512,22 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     return;
   }
 
+  // Soft restart: reload config and dirs caches, but preserve running agents
+  // and registrations. Use /quit for a full shutdown that kills everything.
+  if (req.method === 'POST' && url.pathname === '/restart') {
+    dirsCache.clear();
+    configCache.clear();
+    serverLog('soft restart: cleared config and dirs caches');
+    res.writeHead(200, TEXT_JSON);
+    res.end(
+      JSON.stringify({
+        ok: true,
+        message: 'Config and dirs caches cleared. Running agents preserved.',
+      })
+    );
+    return;
+  }
+
   // Graceful shutdown
   if (req.method === 'POST' && url.pathname === '/quit') {
     stopAllSpawned();
@@ -504,4 +574,4 @@ const shutdown = (signal: string) => {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
-export { server, dirs, config };
+export { server, startupDirs };

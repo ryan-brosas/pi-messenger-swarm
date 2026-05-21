@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import type { MessengerActionParams } from '../../action-types.js';
 import type { MessengerState } from '../../lib.js';
 import { displayChannelLabel, normalizeChannelId } from '../../channel.js';
@@ -193,7 +194,20 @@ function spawnCreate(
     );
   }
 
-  const message = params.message?.trim() || params.prompt?.trim();
+  // --message-file: read mission text from a file to avoid shell interpolation
+  // of backticks, ${...}, parentheses, etc. in the prompt.
+  let message = params.message?.trim() || params.prompt?.trim();
+  if (params.messageFile) {
+    try {
+      const fileContent = fs.readFileSync(params.messageFile, 'utf-8').trim();
+      if (fileContent) message = fileContent;
+    } catch {
+      return result(`Error: cannot read --message-file: ${params.messageFile}`, {
+        mode: 'spawn',
+        error: 'message_file_read_error',
+      });
+    }
+  }
 
   // File-based spawn mode
   if (params.agentFile) {
