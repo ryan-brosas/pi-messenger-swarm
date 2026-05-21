@@ -1,18 +1,18 @@
-import { spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { generateMemorableName } from '../lib.js';
-import { createProgress, parseJsonlLine, updateProgress } from './progress.js';
+import { createProgress, updateProgress } from './progress.js';
 import { removeLiveWorker, updateLiveWorker } from './live-progress.js';
 import type { SpawnRequest, SpawnedAgent } from './types.js';
 import { formatRoleLabel } from './labels.js';
 import { loadAgentDefinition } from './agent-loader.js';
+import { RpcConnection, type AgentEvent } from './rpc-connection.js';
 
 interface SpawnRuntime {
-  process: ChildProcess;
+  rpc: RpcConnection;
   record: SpawnedAgent;
   startMs: number;
   stopping: boolean;
@@ -78,7 +78,6 @@ export function loadSpawnedAgents(cwd: string, sessionId: string): SpawnedAgent[
       const event = JSON.parse(line) as SpawnEvent;
       const existing = agentsById.get(event.id);
 
-      // Merge event data with existing agent state
       const merged: SpawnedAgent = existing
         ? { ...existing, ...event.agent, id: event.id }
         : { ...(event.agent as SpawnedAgent), id: event.id };
@@ -128,14 +127,12 @@ export function getAgentEventHistory(
  */
 function formatYamlMultiline(key: string, value: string): string {
   if (value.includes('\n')) {
-    // Use literal block scalar for multiline strings
     const indented = value
       .split('\n')
       .map((line) => `  ${line}`)
       .join('\n');
     return `${key}: |\n${indented}`;
   }
-  // Simple inline value for single-line strings
   return `${key}: ${value}`;
 }
 
@@ -188,7 +185,7 @@ function buildSwarmProtocol(): string {
     '5. Task completion is required: Mark the task done upon mission completion: `pi-messenger-swarm task done <taskId> "Concrete accomplishment with evidence"`.',
     '6. Be concise, evidence-based, and stay in role.',
     '7. Clarify ambiguity early: if mission scope, expected output format, or framing is unclear or seems incomplete, send a brief targeted question via `pi-messenger-swarm send AgentName "..."` before proceeding. A 30-second alignment check prevents off-target work.',
-    '8. Check channel feed between turns: `pi-messenger-swarm feed --limit 10`. If a teammate sent you a message, respond before proceeding. Messages are channel-mediated — reading the feed is required to receive them.',
+    '8. Messages from teammates are pushed to you by the harness — you do not need to poll the feed. When a message arrives, address it before continuing your current task.',
     '9. Exit when mission is complete: use bash({ command: "exit 0" }) to self-terminate. Remain active only if explicitly instructed (e.g., council discussions, monitoring, or awaiting further input). Do not stay alive indefinitely unless serving an ongoing purpose.',
   ].join('\n');
 }
@@ -269,32 +266,8 @@ function buildPrompt(request: SpawnRequest): string {
   return lines.join('\n');
 }
 
-function upsertSpawnRecord(
-  id: string,
-  updater: (record: SpawnedAgent) => SpawnedAgent
-): SpawnedAgent | null {
-  const runtime = runtimes.get(id);
-  if (!runtime) return null;
-  runtime.record = updater(runtime.record);
-  return runtime.record;
-}
-
-interface SpawnState {
-  id: string;
-  cwd: string;
-  name: string;
-  request: SpawnRequest;
-  prompt: string;
-  systemPrompt: string;
-  env: NodeJS.ProcessEnv;
-  progress: ReturnType<typeof createProgress>;
-  startMs: number;
-  buffer: string;
-  stderr: string;
-}
-
-function createArgs(state: SpawnState, model?: string): string[] {
-  const args = ['--mode', 'json', '--no-session'];
+function createRpcArgs(systemPrompt: string, model?: string): string[] {
+  const args = ['--mode', 'rpc', '--no-session'];
   if (model) {
     const slash = model.indexOf('/');
     if (slash !== -1) {
@@ -305,19 +278,15 @@ function createArgs(state: SpawnState, model?: string): string[] {
   }
   args.push('--extension', EXTENSION_DIR);
 
-  if (state.systemPrompt.trim().length > 0) {
+  if (systemPrompt.trim().length > 0) {
     const promptTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-messenger-swarm-subagent-'));
-    const promptPath = path.join(
-      promptTmpDir,
-      `${state.name.replace(/[^\w.-]/g, '_')}-${state.id}.md`
-    );
-    fs.writeFileSync(promptPath, state.systemPrompt, { mode: 0o600 });
+    const promptPath = path.join(promptTmpDir, 'system-prompt.md');
+    fs.writeFileSync(promptPath, systemPrompt, { mode: 0o600 });
     args.push('--append-system-prompt', promptPath);
     // Store tmpdir on args for retrieval
     (args as any)._promptTmpDir = promptTmpDir;
   }
 
-  args.push(state.prompt);
   return args;
 }
 
@@ -330,68 +299,41 @@ function cleanupTmpDir(tmpDir: string | null) {
   }
 }
 
-function attachHandlers(
-  proc: ChildProcess,
-  state: SpawnState,
+function attachRpcHandlers(
+  rpc: RpcConnection,
+  state: {
+    id: string;
+    cwd: string;
+    name: string;
+    taskId?: string;
+    startMs: number;
+    progress: ReturnType<typeof createProgress>;
+  },
   promptTmpDir: string | null,
   sessionId: string
 ) {
-  proc.stdout?.on('data', (data: Buffer | string) => {
-    state.buffer += data.toString();
-    const lines = state.buffer.split('\n');
-    state.buffer = lines.pop() ?? '';
-
-    for (const line of lines) {
-      const event = parseJsonlLine(line);
-      if (!event) continue;
+  // Subscribe to agent events for live progress tracking
+  rpc.onEvent((event: AgentEvent) => {
+    if (event.type === 'tool_call' || event.type === 'tool_result' || event.type === 'turn_end') {
       updateProgress(state.progress, event, state.startMs);
-      updateLiveWorker(state.cwd, state.request.taskId || spawnLiveKey(state.id), {
-        taskId: state.request.taskId || spawnLiveKey(state.id),
-        agent: 'swarm-subagent',
-        name: state.name,
-        progress: {
-          ...state.progress,
-          recentTools: state.progress.recentTools.map((tool) => ({ ...tool })),
-        },
-        startedAt: state.startMs,
-      });
     }
-  });
 
-  proc.stderr?.on('data', (data: Buffer | string) => {
-    state.stderr += data.toString();
-  });
-
-  proc.on('error', (err) => {
-    cleanupTmpDir(promptTmpDir);
-    const runtime = runtimes.get(state.id);
-    if (!runtime) return;
-
-    runtime.record = {
-      ...runtime.record,
-      status: 'failed',
-      endedAt: new Date().toISOString(),
-      exitCode: 1,
-      error: err.message || 'spawn failed',
-    };
-    runtime.persisted = true;
-    appendEvent(state.cwd, sessionId, {
-      id: state.id,
-      type: 'failed',
-      timestamp: runtime.record.endedAt!,
-      agent: {
-        status: 'failed',
-        endedAt: runtime.record.endedAt,
-        exitCode: 1,
-        error: runtime.record.error,
+    updateLiveWorker(state.cwd, state.taskId || spawnLiveKey(state.id), {
+      taskId: state.taskId || spawnLiveKey(state.id),
+      agent: 'swarm-subagent',
+      name: state.name,
+      progress: {
+        ...state.progress,
+        recentTools: state.progress.recentTools.map((tool) => ({ ...tool })),
       },
+      startedAt: state.startMs,
     });
-    generateAgentFile(state.cwd, sessionId, runtime.record);
   });
 
-  proc.on('close', (code, signal) => {
+  // Handle process exit
+  const handleExit = (code: number | null, signal: string | null) => {
     cleanupTmpDir(promptTmpDir);
-    removeLiveWorker(state.cwd, state.request.taskId || spawnLiveKey(state.id));
+    removeLiveWorker(state.cwd, state.taskId || spawnLiveKey(state.id));
 
     const runtime = runtimes.get(state.id);
     if (!runtime) return;
@@ -400,8 +342,7 @@ function attachHandlers(
     let status: SpawnedAgent['status'] = 'completed';
     let eventType: SpawnEvent['type'] = 'completed';
 
-    if (runtime.stopping || signal) {
-      // Mark as stopped if explicitly stopped or terminated by signal
+    if (runtime.stopping || (signal !== null && signal !== undefined)) {
       status = 'stopped';
       eventType = 'stopped';
     } else if ((code ?? 1) !== 0) {
@@ -416,11 +357,10 @@ function attachHandlers(
       exitCode: code ?? (signal ? 1 : undefined),
       error:
         status === 'failed'
-          ? state.stderr.trim() || runtime.record.error || 'subagent failed'
+          ? rpc.collectedStderr.trim() || runtime.record.error || 'subagent failed'
           : undefined,
     };
 
-    // Append completion event (event-sourced persistence)
     runtime.persisted = true;
     appendEvent(state.cwd, sessionId, {
       id: state.id,
@@ -434,9 +374,14 @@ function attachHandlers(
       },
     });
 
-    // Generate reusable agent file
     generateAgentFile(state.cwd, sessionId, runtime.record);
-  });
+    rpc.destroy();
+  };
+
+  // Patch the onExit callback on the RpcConnection instance.
+  // The 'close' event handler in RpcConnection reads this.onExitCallback
+  // at invocation time (late-bound), so we can set it after start().
+  (rpc as any).onExitCallback = handleExit;
 }
 
 export function spawnSubagent(
@@ -449,7 +394,6 @@ export function spawnSubagent(
   const name = request.name?.trim() || generateMemorableName();
   const startedAt = new Date().toISOString();
 
-  // Determine system prompt and user prompt based on mode
   let systemPrompt: string;
   let prompt: string;
   let role: string;
@@ -457,22 +401,17 @@ export function spawnSubagent(
   let agentFileModel: string | undefined;
 
   if (request.agentFile) {
-    // File-based mode: parse frontmatter, use body as system prompt
     const filePath = path.resolve(cwd, request.agentFile);
     const def = loadAgentDefinition(filePath);
     systemPrompt = def.systemPrompt + '\n\n' + buildSwarmProtocol();
-    // Use message > objective from call > objective from file
     objective = request.message || request.objective || def.objective || '';
     prompt = objective;
     role = def.role;
-    // Extract model from agent file (reserved for agent files only)
     agentFileModel = def.model;
-    // Override persona from file if not specified in request
     if (def.persona && !request.persona) {
       request = { ...request, persona: def.persona };
     }
   } else {
-    // Autoregressive mode: build prompts from parameters
     systemPrompt = buildSystemPrompt(request);
     prompt = buildPrompt(request);
     role = request.role || 'Subagent';
@@ -495,7 +434,6 @@ export function spawnSubagent(
   };
   record.systemPrompt = systemPrompt;
 
-  // Append spawn event (event-sourced persistence)
   appendEvent(cwd, sessionId, {
     id,
     type: 'spawned',
@@ -503,7 +441,6 @@ export function spawnSubagent(
     agent: { ...record },
   });
 
-  // Generate initial agent file (will be updated on exit)
   generateAgentFile(cwd, sessionId, record);
 
   const env = {
@@ -512,49 +449,87 @@ export function spawnSubagent(
     ...(inheritedChannel ? { PI_MESSENGER_CHANNEL: inheritedChannel } : {}),
   };
 
-  const state: SpawnState = {
-    id,
-    cwd,
-    name,
-    request,
-    prompt,
-    systemPrompt,
-    env,
-    progress: createProgress(name),
-    startMs: Date.now(),
-    buffer: '',
-    stderr: '',
-  };
-
-  const args = createArgs(state, agentFileModel);
+  const args = createRpcArgs(systemPrompt, agentFileModel);
   const promptTmpDir = (args as any)._promptTmpDir as string | null;
 
-  const proc = spawn('pi', args, {
+  const rpc = new RpcConnection();
+  rpc.start({
     cwd,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    args,
     env,
   });
 
-  // Persist the child PID so we can detect dead processes after harness restart.
-  // Written to the record and event log right after spawn succeeds.
-  record.pid = proc.pid;
+  // Persist the child PID for liveness checking after harness restart
+  record.pid = rpc.pid;
   appendEvent(cwd, sessionId, {
     id,
     type: 'progress',
     timestamp: startedAt,
-    agent: { pid: proc.pid },
+    agent: { pid: rpc.pid },
   });
 
-  attachHandlers(proc, state, promptTmpDir, sessionId);
+  const progress = createProgress(name);
+  const startMs = Date.now();
+
+  attachRpcHandlers(
+    rpc,
+    { id, cwd, name, taskId: request.taskId, startMs, progress },
+    promptTmpDir,
+    sessionId
+  );
+
+  // Send the initial prompt to get the agent started
+  rpc.prompt(prompt).catch(() => {
+    // If prompt fails, the error will be caught by exit handlers
+  });
 
   runtimes.set(id, {
-    process: proc,
+    rpc,
     record,
-    startMs: state.startMs,
+    startMs,
     stopping: false,
   });
 
   return record;
+}
+
+/**
+ * Push a message to a running subagent via its RPC connection.
+ * Uses steer() to interrupt the agent mid-turn, or followUp() if idle.
+ *
+ * Returns true if the message was accepted by the RPC channel,
+ * false if the agent is not running or the RPC is not connected.
+ */
+export function steerAgent(id: string, message: string): boolean {
+  const runtime = runtimes.get(id);
+  if (!runtime) return false;
+  if (!runtime.rpc.isAlive) return false;
+
+  runtime.rpc
+    .steer(message)
+    .then(() => {})
+    .catch(() => {
+      // steer failure — agent may have already exited
+    });
+  return true;
+}
+
+/**
+ * Push a message to a running subagent by name.
+ *
+ * Convenience wrapper around steerAgent() that resolves by name
+ * instead of internal ID. Used by the harness deliverMessage callback
+ * which only knows the agent's registered name.
+ *
+ * Returns true if the message was accepted, false otherwise.
+ */
+export function steerAgentByName(name: string, message: string): boolean {
+  for (const [id, runtime] of runtimes.entries()) {
+    if (runtime.record.name === name && runtime.rpc.isAlive) {
+      return steerAgent(id, message);
+    }
+  }
+  return false;
 }
 
 export function listSpawned(
@@ -562,11 +537,9 @@ export function listSpawned(
   sessionId: string,
   includeAll: boolean = false
 ): SpawnedAgent[] {
-  // First, get persisted agents for this session from event log
   const persisted = loadSpawnedAgents(cwd, sessionId);
   const persistedById = new Map(persisted.map((a) => [a.id, a]));
 
-  // Override with any in-memory runtimes (for running agents with live process handles)
   for (const [id, runtime] of runtimes.entries()) {
     if (runtime.record.cwd !== cwd) continue;
     if (runtime.record.sessionId !== sessionId) continue;
@@ -575,7 +548,6 @@ export function listSpawned(
 
   let agents = Array.from(persistedById.values());
 
-  // Filter to only running agents by default
   if (!includeAll) {
     agents = agents.filter((a) => a.status === 'running');
   }
@@ -606,48 +578,30 @@ export function stopSpawn(cwd: string, id: string): boolean {
   const runtime = runtimes.get(id);
   if (!runtime) return false;
   if (runtime.record.cwd !== cwd) return false;
-  if (runtime.process.exitCode !== null) return false;
+  if (!runtime.rpc.isAlive) return false;
 
   runtime.stopping = true;
-  runtime.process.kill('SIGTERM');
-  setTimeout(() => {
-    if (runtime.process.exitCode === null) {
-      runtime.process.kill('SIGKILL');
-    }
-  }, 4000).unref();
-
+  runtime.rpc.kill();
   return true;
 }
 
 export function stopAllSpawned(cwd?: string): void {
-  for (const [id, runtime] of runtimes.entries()) {
+  for (const [_id, runtime] of runtimes.entries()) {
     if (cwd && runtime.record.cwd !== cwd) continue;
-    if (runtime.process.exitCode !== null) continue;
+    if (!runtime.rpc.isAlive) continue;
     runtime.stopping = true;
-    runtime.process.kill('SIGTERM');
-    setTimeout(() => {
-      const live = runtimes.get(id);
-      if (!live) return;
-      if (live.process.exitCode === null) {
-        live.process.kill('SIGKILL');
-      }
-    }, 4000).unref();
+    runtime.rpc.kill();
   }
 }
 
 export function cleanupExitedSpawned(cwd: string, sessionId: string): number {
-  // Ensures exited agents are persisted and returns count of newly-finalized agents.
-  // With event sourcing, this mainly handles edge cases where the close handler didn't fire.
   let finalized = 0;
   for (const [id, runtime] of runtimes.entries()) {
     if (runtime.record.cwd !== cwd) continue;
     if (runtime.record.sessionId !== sessionId) continue;
-    // Only process if process has exited
-    if (runtime.process.exitCode === null && runtime.process.signalCode === null) continue;
-    // Skip if already persisted (avoid duplicate work)
+    if (runtime.rpc.isAlive) continue;
     if (runtime.persisted) continue;
 
-    // Agent has finished but not yet persisted - finalize it now
     runtime.persisted = true;
 
     const endedAt = new Date().toISOString();
@@ -657,20 +611,18 @@ export function cleanupExitedSpawned(cwd: string, sessionId: string): number {
     if (runtime.stopping) {
       status = 'stopped';
       eventType = 'stopped';
-    } else if ((runtime.process.exitCode ?? 1) !== 0) {
+    } else if ((runtime.rpc.exitCode ?? 1) !== 0) {
       status = 'failed';
       eventType = 'failed';
     }
 
-    // Determine final state
     runtime.record = {
       ...runtime.record,
       status,
       endedAt,
-      exitCode: runtime.process.exitCode ?? 1,
+      exitCode: runtime.rpc.exitCode ?? 1,
     };
 
-    // Append completion event
     appendEvent(cwd, sessionId, {
       id,
       type: eventType,
@@ -682,7 +634,6 @@ export function cleanupExitedSpawned(cwd: string, sessionId: string): number {
       },
     });
 
-    // Generate agent file
     generateAgentFile(cwd, sessionId, runtime.record);
     finalized++;
   }
@@ -691,7 +642,6 @@ export function cleanupExitedSpawned(cwd: string, sessionId: string): number {
 
 /**
  * Check whether a process is still alive using a zero-signal probe.
- * Returns false if the process has exited or the PID is unavailable.
  */
 function isProcessAlive(pid: number): boolean {
   try {
@@ -706,13 +656,10 @@ function isProcessAlive(pid: number): boolean {
  * Reconcile persisted "running" agents against actual process liveness.
  *
  * When the harness server restarts, all in-memory `runtimes` are lost and
- * `proc.on('close')` handlers are gone. Any subagent that died while the
- * harness was down (or was killed externally, e.g. by NW concurrency
- * limits) stays stuck as "running" in the JSONL event log. This function
- * detects and corrects those orphans by checking PID liveness (if available)
- * or a staleness timeout.
- *
- * Should be called before any read operation (list, status, swarm).
+ * exit handlers are gone. Any subagent that died while the harness was down
+ * stays stuck as "running" in the JSONL event log. This function detects
+ * and corrects those orphans by checking PID liveness or a staleness
+ * timeout.
  */
 export function reconcileSpawnedAgents(cwd: string, sessionId: string): number {
   const persisted = loadSpawnedAgents(cwd, sessionId);
@@ -721,7 +668,6 @@ export function reconcileSpawnedAgents(cwd: string, sessionId: string): number {
   for (const agent of persisted) {
     if (agent.status !== 'running') continue;
 
-    // If we have a PID, do a definitive liveness check
     if (agent.pid && !isProcessAlive(agent.pid)) {
       appendEvent(cwd, sessionId, {
         id: agent.id,
@@ -738,13 +684,9 @@ export function reconcileSpawnedAgents(cwd: string, sessionId: string): number {
       continue;
     }
 
-    // No PID (happens for agents spawned before this field was added) —
-    // fall back to staleness detection. If a "running" agent has been
-    // alive for more than 2 hours without any progress or completion
-    // event, it's almost certainly dead.
     if (!agent.pid) {
       const runningForMs = Date.now() - Date.parse(agent.startedAt);
-      const STALE_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+      const STALE_THRESHOLD_MS = 2 * 60 * 60 * 1000;
       if (runningForMs > STALE_THRESHOLD_MS) {
         appendEvent(cwd, sessionId, {
           id: agent.id,
@@ -769,7 +711,7 @@ export function getRunningSpawnCount(cwd?: string): number {
   let count = 0;
   for (const runtime of runtimes.values()) {
     if (cwd && runtime.record.cwd !== cwd) continue;
-    if (runtime.process.exitCode === null && runtime.record.status === 'running') count++;
+    if (runtime.rpc.isAlive && runtime.record.status === 'running') count++;
   }
   return count;
 }
@@ -777,5 +719,3 @@ export function getRunningSpawnCount(cwd?: string): number {
 export function clearSpawnStateForTests(): void {
   runtimes.clear();
 }
-
-// No automatic loading on module init - agents are loaded per-session via listSpawned

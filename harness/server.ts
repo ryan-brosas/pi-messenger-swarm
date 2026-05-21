@@ -33,6 +33,7 @@ import {
   patchChannelSessionId,
 } from '../channel.js';
 import { ensureDirSync, getGitBranch, normalizeCwd } from '../store/shared.js';
+import { steerAgentByName } from '../swarm/spawn.js';
 
 function getMessengerDirs(): Dirs {
   const baseDir =
@@ -254,10 +255,14 @@ function createHarnessContext(sessionId: string, cwd?: string): HarnessContext {
   };
 }
 
-// Harness does not deliver messages through pi's ExtensionAPI.
-// Feed persistence happens inside the handlers.
-// The in-process extension picks up messages via its own delivery mechanism.
-const deliverMessage = (_msg: AgentMailMessage): void => {};
+// Deliver messages to running subagents via RPC steering.
+const deliverMessage = (msg: AgentMailMessage): void => {
+  if (!msg.to || msg.to.startsWith('#')) return;
+  const delivered = steerAgentByName(msg.to, `**Message from ${msg.from}**\n\n${msg.text}`);
+  if (!delivered) {
+    serverLog(`deliverMessage: agent ${msg.to} not reachable via RPC, message persists in feed`);
+  }
+};
 const updateStatus = (_ctx: unknown): void => {};
 
 const PORT = Number(process.env.PI_MESSENGER_PORT ?? 9877);

@@ -111,9 +111,11 @@ describe('swarm spawn with agentFile', () => {
     );
 
     const args = spawnMock.mock.calls[0][1] as string[];
-    // User prompt is the last argument
-    const userPrompt = args[args.length - 1];
-    expect(userPrompt).toBe('Do this specific task');
+    // In RPC mode, the user prompt is sent via rpc.prompt(), not as a CLI arg
+    expect(args).toContain('--mode');
+    expect(args[args.indexOf('--mode') + 1]).toBe('rpc');
+    // No positional user prompt arg
+    expect(args).not.toContain('Do this specific task');
 
     proc.emit('close', 0);
   });

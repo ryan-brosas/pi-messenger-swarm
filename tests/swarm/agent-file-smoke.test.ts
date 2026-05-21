@@ -120,8 +120,11 @@ describe('agent file smoke tests', () => {
     const promptPath = args[idx + 1];
     expect(fs.readFileSync(promptPath, 'utf-8')).toContain('System prompt from file');
 
-    // Verify message was user prompt
-    expect(args[args.length - 1]).toBe('Do the mission');
+    // In RPC mode, the user prompt is sent via rpc.prompt(), not as a CLI arg
+    expect(args).toContain('--mode');
+    expect(args[args.indexOf('--mode') + 1]).toBe('rpc');
+    // No positional user prompt arg (it's sent via RPC)
+    expect(args).not.toContain('Do the mission');
 
     proc.emit('close', 0);
   });
