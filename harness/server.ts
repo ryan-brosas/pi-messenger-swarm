@@ -106,9 +106,19 @@ function readRegistrations(): RegistrationFile[] {
  *    action handler will reject with "Not registered" if needed, or
  *    the `join` action will register a new agent.
  */
-function resolveAgentState(callerPid?: number, channelHint?: string): MessengerState {
-  const cwd = normalizeCwd(process.cwd());
-  const gitBranch = getGitBranch(cwd);
+function resolveAgentState(
+  callerPid?: number,
+  channelHint?: string
+): {
+  state: MessengerState;
+  resolvedCwd: string;
+} {
+  // Default to process.cwd() (the harness's own cwd), but prefer
+  // the cwd stored in the agent's registration file — this is the
+  // user's actual project directory, which is where feed events,
+  // tasks, and spawn history should be written.
+  let resolvedCwd = normalizeCwd(process.cwd());
+  const gitBranch = getGitBranch(resolvedCwd);
 
   let registered = false;
   let resolvedName = '';
@@ -128,6 +138,7 @@ function resolveAgentState(callerPid?: number, channelHint?: string): MessengerS
       currentChannel = match.currentChannel || '';
       sessionChannel = match.sessionChannel || currentChannel;
       joinedChannels = match.joinedChannels || [];
+      if (match.cwd) resolvedCwd = normalizeCwd(match.cwd);
       registered = true;
     }
   }
@@ -141,6 +152,7 @@ function resolveAgentState(callerPid?: number, channelHint?: string): MessengerS
       currentChannel = reg.currentChannel || '';
       sessionChannel = reg.sessionChannel || currentChannel;
       joinedChannels = reg.joinedChannels || [];
+      if (reg.cwd) resolvedCwd = normalizeCwd(reg.cwd);
       registered = true;
     } else {
       // Multiple agents, no caller PID — pick most recently active by mtime
@@ -159,6 +171,7 @@ function resolveAgentState(callerPid?: number, channelHint?: string): MessengerS
           currentChannel = reg.currentChannel || '';
           sessionChannel = reg.sessionChannel || currentChannel;
           joinedChannels = reg.joinedChannels || [];
+          if (reg.cwd) resolvedCwd = normalizeCwd(reg.cwd);
           registered = true;
         }
       }
@@ -198,29 +211,32 @@ function resolveAgentState(callerPid?: number, channelHint?: string): MessengerS
   }
 
   return {
-    agentName: resolvedName,
-    registered,
-    reservations: [],
-    chatHistory: new Map(),
-    unreadCounts: new Map(),
-    channelPostHistory: [],
-    seenSenders: new Map(),
-    model: '',
-    gitBranch,
-    spec: undefined,
-    scopeToFolder: config.scopeToFolder,
-    isHuman: false,
-    session: { toolCalls: 0, tokens: 0, filesModified: [] },
-    activity: { lastActivityAt: new Date().toISOString() },
-    statusMessage: undefined,
-    customStatus: false,
-    registryFlushTimer: null,
-    sessionStartedAt: new Date().toISOString(),
-    contextSessionId: sessionIdFromDisk,
-    callerPid,
-    currentChannel,
-    sessionChannel,
-    joinedChannels,
+    state: {
+      agentName: resolvedName,
+      registered,
+      reservations: [],
+      chatHistory: new Map(),
+      unreadCounts: new Map(),
+      channelPostHistory: [],
+      seenSenders: new Map(),
+      model: '',
+      gitBranch,
+      spec: undefined,
+      scopeToFolder: config.scopeToFolder,
+      isHuman: false,
+      session: { toolCalls: 0, tokens: 0, filesModified: [] },
+      activity: { lastActivityAt: new Date().toISOString() },
+      statusMessage: undefined,
+      customStatus: false,
+      registryFlushTimer: null,
+      sessionStartedAt: new Date().toISOString(),
+      contextSessionId: sessionIdFromDisk,
+      callerPid,
+      currentChannel,
+      sessionChannel,
+      joinedChannels,
+    },
+    resolvedCwd,
   };
 }
 
@@ -370,11 +386,11 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     );
 
     // Build per-request state from disk
-    const state = resolveAgentState(callerPid, channelHint);
+    const { state, resolvedCwd } = resolveAgentState(callerPid, channelHint);
     // Use session ID from header (written by extension to .pi/messenger/session-id)
     // if available, otherwise fall back to the state's contextSessionId (from disk).
     const effectiveSessionId = sessionId || state.contextSessionId || '';
-    const ctx = createHarnessContext(effectiveSessionId, normalizeCwd(process.cwd()));
+    const ctx = createHarnessContext(effectiveSessionId, resolvedCwd);
     // Also update the state's contextSessionId so handlers use it
     state.contextSessionId = effectiveSessionId;
 
