@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.25.7](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.6...v0.25.7) (2026-05-21)
+
+
+### Features
+
+* **swarm:** detect dead subagents and enforce concurrency limits ([b9e2d01](https://github.com/monotykamary/pi-messenger-swarm/commit/b9e2d01c4f01e359a8026fdd9c317c48a6dbb9a0))
+* **swarm:** instruct subagents to poll channel feed for messages ([bc29516](https://github.com/monotykamary/pi-messenger-swarm/commit/bc29516502b6232567340883ab830d08876183bd))
+
 ### [0.25.6](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.5...v0.25.6) (2026-05-21)
 
 
