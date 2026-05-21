@@ -6,7 +6,7 @@ import type { Component, Focusable, TUI } from '@earendil-works/pi-tui';
 import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 import type { Theme } from '@earendil-works/pi-coding-agent';
 import type { MessengerState, Dirs } from '../lib.js';
-import { displayChannelLabel } from '../channel.js';
+import { displayChannelLabel, listChannels } from '../channel.js';
 import { getEffectiveSessionId } from '../store/shared.js';
 import * as taskStore from '../swarm/task-store.js';
 import { type FeedEvent } from '../feed/index.js';
@@ -83,6 +83,7 @@ export class MessengerOverlay implements Component, Focusable {
     feedEvents: FeedEvent[];
     lines: string[];
   } | null = null;
+  private discoveredChannelsCache: { channels: string[]; expiresAt: number } | null = null;
 
   constructor(
     private tui: TUI,
@@ -138,6 +139,52 @@ export class MessengerOverlay implements Component, Focusable {
 
   private currentChannel(): string {
     return this.state.currentChannel;
+  }
+
+  /**
+   * Get the list of all channel IDs on disk, cached with a TTL.
+   * Avoids redundant file I/O on every render.
+   */
+  private getDiscoveredChannelIds(): string[] {
+    const now = Date.now();
+    if (this.discoveredChannelsCache && this.discoveredChannelsCache.expiresAt > now) {
+      return this.discoveredChannelsCache.channels;
+    }
+    const channels = listChannels(this.dirs).map((c) => c.id);
+    this.discoveredChannelsCache = { channels, expiresAt: now + 2000 };
+    return channels;
+  }
+
+  /**
+   * Count channels that exist on disk (e.g. created by subagents)
+   * but aren't in the main agent's joinedChannels.
+   */
+  private getUndiscoveredChannelCount(): number {
+    const joinedSet = new Set(this.state.joinedChannels);
+    return this.getDiscoveredChannelIds().filter((id) => !joinedSet.has(id)).length;
+  }
+
+  /**
+   * Build a merged channel list: joined channels first (in order),
+   * then any other channels that exist on disk but aren't joined yet.
+   * This ensures subagent-created channels are discoverable in the UI.
+   */
+  private getAllDiscoveredChannels(): string[] {
+    const joined =
+      this.state.joinedChannels.length > 0
+        ? this.state.joinedChannels
+        : [this.state.currentChannel];
+    const joinedSet = new Set(joined);
+    // Discover channels that exist on disk (e.g. created by subagents)
+    // but aren't in the main agent's joinedChannels yet.
+    const onDisk = this.getDiscoveredChannelIds();
+    const all = [...joined];
+    for (const ch of onDisk) {
+      if (!joinedSet.has(ch)) {
+        all.push(ch);
+      }
+    }
+    return all;
   }
 
   private getFeedLineCountCached(channelId: string): number {
@@ -230,18 +277,16 @@ export class MessengerOverlay implements Component, Focusable {
   }
 
   private cycleChannel(direction: 1 | -1): void {
-    const channels =
-      this.state.joinedChannels.length > 0
-        ? this.state.joinedChannels
-        : [this.state.currentChannel];
-    if (channels.length <= 1) return;
-    const currentIndex = Math.max(0, channels.indexOf(this.state.currentChannel));
-    const nextIndex = (currentIndex + direction + channels.length) % channels.length;
-    const nextChannel = channels[nextIndex];
+    const allChannels = this.getAllDiscoveredChannels();
+    if (allChannels.length <= 1) return;
+    const currentIndex = Math.max(0, allChannels.indexOf(this.state.currentChannel));
+    const nextIndex = (currentIndex + direction + allChannels.length) % allChannels.length;
+    const nextChannel = allChannels[nextIndex];
     const switched = this.callbacks.onSwitchChannel?.(nextChannel);
     if (!switched) return;
 
     this.feedLineCountCache = null;
+    this.discoveredChannelsCache = null;
     this.viewState.feedLoadedEvents = [];
     this.viewState.feedWindowStart = 0;
     this.viewState.feedWindowEnd = 0;
@@ -452,7 +497,20 @@ export class MessengerOverlay implements Component, Focusable {
     }
 
     lines.push(this.chromeCache.titleLine);
-    lines.push(row(renderStatusBar(this.theme, this.cwd, sectionW, channelId, liveWorkers, tasks)));
+    lines.push(
+      row(
+        renderStatusBar(
+          this.theme,
+          this.cwd,
+          sectionW,
+          channelId,
+          liveWorkers,
+          tasks,
+          sessionId,
+          this.getUndiscoveredChannelCount()
+        )
+      )
+    );
     lines.push(this.chromeCache.emptyLine);
 
     // Calculate legend first to determine dynamic chrome lines
@@ -602,18 +660,23 @@ export class MessengerOverlay implements Component, Focusable {
   }
 
   private renderTitleContent(): string {
-    return this.theme.fg(
-      'accent',
-      `Swarm Messenger · ${displayChannelLabel(this.currentChannel())}`
-    );
+    const onDisk = this.getDiscoveredChannelIds();
+    const joinedSet = new Set(this.state.joinedChannels);
+    const isDiscovered =
+      !joinedSet.has(this.currentChannel()) && onDisk.includes(this.currentChannel());
+    const label = displayChannelLabel(this.currentChannel());
+    const suffix = isDiscovered ? ' (unjoined)' : '';
+    return this.theme.fg('accent', `Swarm Messenger · ${label}${suffix}`);
   }
 
   invalidate(): void {
     this.renderCache = null;
+    this.discoveredChannelsCache = null;
   }
 
   dispose(): void {
     this.renderCache = null;
+    this.discoveredChannelsCache = null;
     this.stopProgressRefresh();
     this.cancelCompletionTimer();
     if (this.viewState.notificationTimer) {

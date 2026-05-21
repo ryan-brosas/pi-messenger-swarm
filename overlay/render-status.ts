@@ -19,6 +19,7 @@ let statusBarCache: {
   width: number;
   channelId: string;
   liveCount: number;
+  undiscoveredChannels: number;
   line: string;
 } | null = null;
 
@@ -29,7 +30,8 @@ export function renderStatusBar(
   channelId: string,
   liveWorkers: ReadonlyMap<string, LiveWorkerInfo> = getLiveWorkers(cwd),
   tasks: Task[],
-  sessionId: string = ''
+  sessionId: string = '',
+  undiscoveredChannels: number = 0
 ): string {
   const liveCount = liveWorkers.size;
   if (
@@ -37,7 +39,8 @@ export function renderStatusBar(
     statusBarCache.tasks === tasks &&
     statusBarCache.width === width &&
     statusBarCache.channelId === channelId &&
-    statusBarCache.liveCount === liveCount
+    statusBarCache.liveCount === liveCount &&
+    statusBarCache.undiscoveredChannels === undiscoveredChannels
   ) {
     return statusBarCache.line;
   }
@@ -47,13 +50,20 @@ export function renderStatusBar(
 
   let line: string;
   if (summary.total === 0) {
-    line = truncateToWidth(_theme.fg('dim', `No swarm tasks │ ⚙ ${liveCount} live`), width);
+    line = `No swarm tasks │ ⚙ ${liveCount} live`;
+    if (undiscoveredChannels > 0) {
+      line += ` │ 📡 ${undiscoveredChannels} other ch.`;
+    }
+    line = truncateToWidth(_theme.fg('dim', line), width);
   } else {
     line = `☑ ${summary.done}/${summary.total} tasks`;
     line += ` │ ready ${ready.length}`;
     line += ` │ in progress ${summary.in_progress}`;
     line += ` │ blocked ${summary.blocked}`;
     line += ` │ ⚙ ${liveCount} live`;
+    if (undiscoveredChannels > 0) {
+      line += ` │ 📡 ${undiscoveredChannels}`;
+    }
     line = truncateToWidth(line, width);
   }
 
@@ -62,6 +72,7 @@ export function renderStatusBar(
     width,
     channelId,
     liveCount,
+    undiscoveredChannels,
     line,
   };
   return line;
