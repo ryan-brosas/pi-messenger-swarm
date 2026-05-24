@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.25.11](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.10...v0.25.11) (2026-05-24)
+
+
+### Bug Fixes
+
+* resolve source-load fallback errors and prefer compiled CLI ([66c1f49](https://github.com/monotykamary/pi-messenger-swarm/commit/66c1f491b8aaa7642a569db6b9591335a8dc323a))
+
 ### [0.25.10](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.9...v0.25.10) (2026-05-24)
 
 
