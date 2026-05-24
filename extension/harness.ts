@@ -8,16 +8,50 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn as spawnChild, type ChildProcess } from 'node:child_process';
 
-/**
- * Resolve the path to the CLI entry point.
- * The extension runs from TypeScript source via tsx — there is no
- * compiled cli.js on disk (dist/ is gitignored and not shipped).
- * The shell wrapper uses 'npx tsx' to invoke the .ts source directly.
- */
-export function getCliPath(): string {
+/** Resolve the path to the compiled CLI entry point if it exists. */
+function getDistCliPath(): string | null {
   const __dirname = fileURLToPath(new URL('.', import.meta.url));
-  // Source .ts entry point (always present)
+  // When loaded from dist/ (npm package), __dirname is dist/extension/
+  // and the compiled CLI is at dist/harness/cli.js.
+  const distPath = join(__dirname, '..', 'harness', 'cli.js');
+  try {
+    if (fs.existsSync(distPath)) return distPath;
+  } catch {}
+  return null;
+}
+
+/** Resolve the path to the source CLI entry point. */
+function getSourceCliPath(): string {
+  const __dirname = fileURLToPath(new URL('.', import.meta.url));
   return join(__dirname, '..', 'harness', 'cli.ts');
+}
+
+export interface CliResolution {
+  /** Command to execute ("node" or "npx"). */
+  command: string;
+  /** Arguments before the CLI path (e.g. ["tsx"]). */
+  prefixArgs: string[];
+  /** Absolute path to the CLI entry point. */
+  cliPath: string;
+  /** Working directory for the CLI process. */
+  cwd: string;
+}
+
+/**
+ * Resolve the CLI entry point, preferring the compiled dist/ version
+ * when available (faster startup, no transpile overhead).
+ * Falls back to npx tsx with the source .ts file.
+ */
+export function resolveCli(): CliResolution {
+  const distCli = getDistCliPath();
+  if (distCli) {
+    const __dirname = fileURLToPath(new URL('.', import.meta.url));
+    // cwd is the package root (parent of dist/)
+    return { command: 'node', prefixArgs: [], cliPath: distCli, cwd: join(__dirname, '..') };
+  }
+  const sourceCli = getSourceCliPath();
+  const projectRoot = getProjectRoot();
+  return { command: 'npx', prefixArgs: ['tsx'], cliPath: sourceCli, cwd: projectRoot };
 }
 
 /** Resolve the project root for cwd. */
@@ -41,16 +75,14 @@ export function installShellAlias(): void {
     if (!fs.existsSync(agentBinDir)) {
       fs.mkdirSync(agentBinDir, { recursive: true });
     }
-    const cliPath = getCliPath();
+
+    const { command, prefixArgs, cliPath, cwd } = resolveCli();
     const linkPath = join(agentBinDir, 'pi-messenger-swarm');
 
-    // Write a shell wrapper that resolves the correct node + cli path
-    // Uses npx tsx so it works from source without a compiled cli.js.
-    // The project root must be cwd so relative imports in cli.ts resolve.
-    const projectRoot = getProjectRoot();
+    const argsStr = prefixArgs.length > 0 ? ` ${prefixArgs.join(' ')}` : '';
     const wrapperContent = `#!/bin/sh
-cd "${projectRoot}" 2>/dev/null
-exec npx tsx "${cliPath}" "$@"
+cd "${cwd}" 2>/dev/null
+exec ${command}${argsStr} "${cliPath}" "$@"
 `;
 
     // Only write if content differs (avoids unnecessary writes on every session_start)
@@ -64,7 +96,7 @@ exec npx tsx "${cliPath}" "$@"
       fs.writeFileSync(linkPath, wrapperContent, { mode: 0o755 });
     }
   } catch {
-    // Best effort — CLI path is still available via getCliPath()
+    // Best effort — CLI path is still available via resolveCli()
   }
 }
 
@@ -95,12 +127,11 @@ export function createHarnessServer(messengerDir: string): HarnessServerControll
       env.PI_MESSENGER_GLOBAL = process.env.PI_MESSENGER_GLOBAL;
     }
 
-    const cliPath = getCliPath();
-    const projectRoot = getProjectRoot();
+    const { command, prefixArgs, cliPath, cwd } = resolveCli();
 
     try {
-      harnessProcess = spawnChild('npx', ['tsx', cliPath, '--start'], {
-        cwd: projectRoot,
+      harnessProcess = spawnChild(command, [...prefixArgs, cliPath, '--start'], {
+        cwd,
         stdio: ['ignore', 'ignore', 'ignore'],
         detached: true,
         env,
