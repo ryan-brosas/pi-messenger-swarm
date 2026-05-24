@@ -399,15 +399,14 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
     // Tell the harness to stop all agents and shut down.
     // This works even if the harness was started by a previous session
     // (harnessServer.stop() only works if we spawned the harness ourselves).
-    try {
-      const port = Number(process.env.PI_MESSENGER_PORT ?? 9877);
-      await fetch(`http://127.0.0.1:${port}/quit`, { method: 'POST' });
-      // Give the harness 2.5s to stop agents before we move on
-      await new Promise((r) => setTimeout(r, 2500));
-    } catch {
-      // Harness not reachable — already down
-    }
-    harnessServer.stop();
+    // Fire-and-forget: the quit+wait is non-blocking so session resume
+    // is not delayed by the harness shutdown cadence.
+    const port = Number(process.env.PI_MESSENGER_PORT ?? 9877);
+    const quitP = fetch(`http://127.0.0.1:${port}/quit`, { method: 'POST' })
+      .then(() => new Promise((r) => setTimeout(r, 2500)))
+      .then(() => harnessServer.stop())
+      .catch(() => harnessServer.stop());
+    void quitP;
     overlayOpening = false;
     overlayHandle = null;
     overlayTui = null;
