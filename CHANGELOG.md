@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.25.10](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.9...v0.25.10) (2026-05-24)
+
+
+### Features
+
+* **overlay:** reduce overlay height by 2 rows ([518c1e3](https://github.com/monotykamary/pi-messenger-swarm/commit/518c1e3aada4950e0c171b5e754598c00e8fe769))
+
 ### [0.25.9](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.8...v0.25.9) (2026-05-21)
 
 
