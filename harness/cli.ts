@@ -165,6 +165,69 @@ function findCallerPid(): number | undefined {
 }
 
 /**
+ * Read the agent name from the registration file that matches the
+ * caller's PID. This covers the coordinator (main pi session) which
+ * doesn't have PI_AGENT_NAME in its env but IS registered with the
+ * harness server.
+ *
+ * The harness server writes one JSON file per registered agent in
+ * .pi/messenger/registry/<name>.json. Each file contains { name, pid }.
+ * We read all files and match by PID from findCallerPid().
+ *
+ * Returns undefined if no match found (agent not registered yet, or
+ * running outside pi).
+ */
+function readRegistrationName(): string | undefined {
+  try {
+    const projectRoot = resolveProjectRoot(process.cwd());
+    const registryDir = path.join(projectRoot, '.pi', 'messenger', 'registry');
+    if (!fs.existsSync(registryDir)) return undefined;
+
+    const callerPid = findCallerPid();
+
+    // Read all registration files
+    const files = fs.readdirSync(registryDir).filter((f) => f.endsWith('.json'));
+    if (files.length === 0) return undefined;
+
+    // If only one registration (common for coordinator), just use it
+    if (files.length === 1) {
+      const reg = JSON.parse(fs.readFileSync(path.join(registryDir, files[0]), 'utf-8'));
+      return reg.name || undefined;
+    }
+
+    // Multiple registrations: match by PID
+    if (callerPid) {
+      for (const file of files) {
+        try {
+          const reg = JSON.parse(fs.readFileSync(path.join(registryDir, file), 'utf-8'));
+          if (reg.pid === callerPid) return reg.name;
+        } catch {
+          // Skip malformed
+        }
+      }
+    }
+
+    // Fallback: most recently modified registration (most likely active)
+    let bestName: string | undefined;
+    let bestMtime = 0;
+    for (const file of files) {
+      try {
+        const stat = fs.statSync(path.join(registryDir, file));
+        if (stat.mtimeMs > bestMtime) {
+          bestMtime = stat.mtimeMs;
+          bestName = file.replace(/\.json$/, '');
+        }
+      } catch {
+        // Skip
+      }
+    }
+    return bestName;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Read the session ID from .pi/messenger/session-id, written by the
  * extension at session_start. This bridges the gap between pi's
  * SessionManager (only available in-process) and the harness server.
@@ -186,10 +249,19 @@ function readSessionIdFromFile(): string | undefined {
 function agentHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
 
-  // Identity: prefer explicit agent name from env (set by parent on spawn)
-  // over fragile PID tree walking.
-  const agentName = process.env.PI_AGENT_NAME?.trim();
-  if (agentName) headers['x-agent-name'] = agentName;
+  // Identity resolution strategy (in priority order):
+  // 1. Explicit env var (PI_AGENT_NAME) — set by parent on spawn for subagents
+  // 2. Registration name from .pi/messenger/registry/ — the harness server wrote
+  //    it during the agent's join. This covers the coordinator (main pi session)
+  //    which doesn't have PI_AGENT_NAME in its env but IS registered.
+  // 3. PID-based fallback — fragile, races with process exit, last resort.
+  const envName = process.env.PI_AGENT_NAME?.trim();
+  if (envName) {
+    headers['x-agent-name'] = envName;
+  } else {
+    const regName = readRegistrationName();
+    if (regName) headers['x-agent-name'] = regName;
+  }
 
   // PID-based identity as fallback (for pi sessions that don't set PI_AGENT_NAME)
   const callerPid = findCallerPid();

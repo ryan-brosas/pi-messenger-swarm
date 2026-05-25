@@ -265,20 +265,36 @@ function resolveAgentState(
     }
   }
 
-  // If the registration's sessionId doesn't match the request's session ID,
-  // the channel fields are from a stale session. Reset them so the agent
-  // gets a fresh session channel instead of inheriting one from a different
-  // session. Keep the agent name and PID — the process IS alive.
+  // Session mismatch: the request's x-session-id differs from the
+  // registration's sessionId. This happens when:
+  //   1. The session-id file was overwritten by a different pi process
+  //   2. The agent resumed in a new pi session after a crash/disconnect
+  //   3. Multiple pi sessions share the same project directory
+  //
+  // We must NOT wipe currentChannel or joinedChannels — these reflect the
+  // agent's actual working state (they explicitly joined those channels).
+  // Doing so causes the exact failure observed in the wild: coordinator
+  // joins #loud-moon, spawns agents, then after a harness restart its
+  // feed/task.list/task.show calls resolve to the wrong channel because
+  // the session mismatch wiped the channel context.
+  //
+  // We only reset sessionChannel — the per-session channel is tied to the
+  // old session and a new one will be created for the current session if
+  // needed. But if the agent's currentChannel matches the old sessionChannel,
+  // update it to the new session's channel when it's created below.
   if (
     registered &&
     requestSessionId &&
     sessionIdFromDisk &&
     sessionIdFromDisk !== requestSessionId
   ) {
-    currentChannel = '';
+    // Track if currentChannel was the old sessionChannel so we can update it
+    const currentIsSessionChannel = currentChannel === sessionChannel;
     sessionChannel = '';
-    joinedChannels = ['memory'];
-    // Keep name + registered so we reuse the same identity
+    // If the agent was on its session channel, clear currentChannel too
+    // so a new session channel can be assigned below.
+    if (currentIsSessionChannel) currentChannel = '';
+    // Keep joinedChannels and name + registered so we reuse the same identity.
   }
 
   // Override channel from request header if provided.
