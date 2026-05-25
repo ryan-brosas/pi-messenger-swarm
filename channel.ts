@@ -28,6 +28,9 @@ export interface ChannelMetaHeader {
 export const CHANNEL_META_VERSION = 1;
 
 export const MEMORY_CHANNEL_ID = 'memory';
+
+/** Threshold in ms after which a channel without activity is considered stale. */
+export const ACTIVE_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
 export const DEFAULT_NAMED_CHANNELS: ReadonlyArray<{ id: string; description: string }> = [
   { id: MEMORY_CHANNEL_ID, description: 'Cross-session knowledge and insights' },
 ];
@@ -146,6 +149,18 @@ export function readChannelHeader(dirs: Dirs, channelId: string): ChannelMetaHea
  * Read all event lines from a channel JSONL file (skips the metadata header).
  * Returns raw JSON strings, not parsed objects.
  */
+/** Get the timestamp of the last feed event in a channel, or null if no events. */
+export function getLastActivity(dirs: Dirs, channelId: string): string | null {
+  try {
+    const events = readChannelEventLines(dirs, channelId);
+    if (events.length === 0) return null;
+    const last = JSON.parse(events[events.length - 1]) as { ts?: string } | null;
+    return last?.ts ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function readChannelEventLines(dirs: Dirs, channelId: string): string[] {
   const filePath = channelPath(dirs, channelId);
   if (!fs.existsSync(filePath)) return [];

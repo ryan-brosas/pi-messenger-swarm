@@ -1,14 +1,13 @@
 import type { Dirs, MessengerState } from '../../lib.js';
 import {
+  ACTIVE_THRESHOLD_MS,
   displayChannelLabel,
+  getLastActivity,
   listChannels,
-  readChannelEventLines,
   type ChannelRecord,
 } from '../../channel.js';
 import * as store from '../../store.js';
 import { notRegisteredError, result } from '../result.js';
-
-const ACTIVE_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
 
 function formatRelativeTime(ts: string): string {
   const diff = Date.now() - new Date(ts).getTime();
@@ -20,17 +19,6 @@ function formatRelativeTime(ts: string): string {
   return rem > 0 ? `${hours}h ${rem}m ago` : `${hours}h ago`;
 }
 
-function getLastActivity(dirs: Dirs, channelId: string): string | null {
-  try {
-    const events = readChannelEventLines(dirs, channelId);
-    if (events.length === 0) return null;
-    const last = JSON.parse(events[events.length - 1]) as { ts?: string } | null;
-    return last?.ts ?? null;
-  } catch {
-    return null;
-  }
-}
-
 function formatChannelLine(
   channel: ChannelRecord,
   dirs: Dirs,
@@ -40,13 +28,33 @@ function formatChannelLine(
   const label = displayChannelLabel(channel.id);
   const type = channel.type;
 
-  // Named channels are always active
+  // #memory is always active (cross-session by design)
+  if (channel.type === 'named' && channel.id === 'memory') {
+    return {
+      line: `  ${label.padEnd(24)} named    persistent`,
+      active: true,
+    };
+  }
+
+  // Named channels: check staleness based on last activity
   if (channel.type === 'named') {
-    const isMemory = channel.id === 'memory';
-    const note = isMemory ? 'persistent' : channel.description ? channel.description : '';
+    const lastTs = getLastActivity(dirs, channel.id);
+    const referenceTs = lastTs ?? channel.createdAt;
+    const isActive = now - new Date(referenceTs).getTime() < ACTIVE_THRESHOLD_MS;
+
+    if (isActive) {
+      const note = channel.description || '';
+      return {
+        line: `  ${label.padEnd(24)} named    ${note}`,
+        active: true,
+      };
+    }
+
+    // Stale named channel
+    const note = lastTs ? `last activity ${formatRelativeTime(lastTs)}` : 'no activity';
     return {
       line: `  ${label.padEnd(24)} named    ${note}`,
-      active: true,
+      active: false,
     };
   }
 

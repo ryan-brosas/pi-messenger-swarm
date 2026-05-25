@@ -8,7 +8,12 @@ import type { Theme } from '@earendil-works/pi-coding-agent';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { MessengerState, Dirs } from '../lib.js';
-import { displayChannelLabel, listChannels } from '../channel.js';
+import {
+  displayChannelLabel,
+  getLastActivity,
+  listChannels,
+  ACTIVE_THRESHOLD_MS,
+} from '../channel.js';
 import { getEffectiveSessionId } from '../store/shared.js';
 import { syncChannelStateFromDisk } from '../store/agents.js';
 import * as taskStore from '../swarm/task-store.js';
@@ -156,7 +161,9 @@ export class MessengerOverlay implements Component, Focusable {
    * Discovery rules:
    * - Channels the main agent has joined: always visible
    * - #memory: always visible (cross-session by design)
-   * - Named channels on disk: always visible (kafka-like — anyone can subscribe)
+   * - Named channels on disk: visible if active (last activity within stale threshold).
+   *   Stale named channels are hidden unless joined (like stale session channels).
+   *   #memory is always visible (cross-session by design).
    * - Session channels from this session: visible
    * - Session channels from other sessions: HIDDEN by default.
    *   They only appear if the agent has explicitly joined them.
@@ -175,8 +182,14 @@ export class MessengerOverlay implements Component, Focusable {
         if (joinedSet.has(c.id)) return true;
         // #memory is cross-session by design
         if (c.id === 'memory') return true;
-        // Named channels: always visible — kafka-like, anyone can subscribe
-        if (c.type === 'named') return true;
+        // Named channels: visible if active (last activity within stale threshold).
+        // #memory is always visible (caught above). Stale named channels are hidden
+        // unless joined — discover via `channels --all`.
+        if (c.type === 'named') {
+          const lastTs = getLastActivity(this.dirs, c.id);
+          const referenceTs = lastTs ?? c.createdAt;
+          return Date.now() - new Date(referenceTs).getTime() < ACTIVE_THRESHOLD_MS;
+        }
         // Session channels from this session: visible
         if (c.type === 'session' && c.sessionId === mySessionId) return true;
         // Session channels from other sessions: hidden by default.

@@ -106,21 +106,61 @@ afterEach(() => {
 });
 
 describe('swarm channels', () => {
-  it('shows named channels as always active', () => {
+  it('shows active named channels and #memory as always active', () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-messenger-channels-test-'));
     roots.add(cwd);
     const dirs = createDirs(cwd);
     const state = createState();
 
-    // Named channels (memory is auto-created, dev is explicit)
+    // Named channels (memory is persistent, dev is recently created)
     createChannelFile(dirs, 'memory', 'named');
     createChannelFile(dirs, 'dev', 'named');
 
     const result = executeChannels(state, dirs, cwd);
     expect(result.content[0]?.text).toContain('#memory');
+    expect(result.content[0]?.text).toContain('persistent');
     expect(result.content[0]?.text).toContain('#dev');
     expect(result.content[0]?.text).toContain('named');
     expect(result.details.active).toBe(2);
+  });
+
+  it('hides stale named channels by default (except #memory)', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-messenger-channels-test-'));
+    roots.add(cwd);
+    const dirs = createDirs(cwd);
+    const state = createState();
+
+    createChannelFile(dirs, 'memory', 'named');
+    createChannelFile(dirs, 'dev', 'named');
+
+    // Make dev stale: last activity > 30 min ago
+    appendFeedEvent(dirs, 'dev', new Date(Date.now() - 45 * 60_000).toISOString());
+
+    const result = executeChannels(state, dirs, cwd);
+    // #memory is always active
+    expect(result.content[0]?.text).toContain('#memory');
+    // #dev is stale → hidden from default view
+    expect(result.content[0]?.text).not.toContain('#dev');
+    expect(result.details.active).toBe(1);
+    expect(result.details.inactive).toBe(1);
+  });
+
+  it('shows stale named channels with --all', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-messenger-channels-test-'));
+    roots.add(cwd);
+    const dirs = createDirs(cwd);
+    const state = createState();
+
+    createChannelFile(dirs, 'memory', 'named');
+    createChannelFile(dirs, 'dev', 'named');
+
+    // Make dev stale
+    appendFeedEvent(dirs, 'dev', new Date(Date.now() - 45 * 60_000).toISOString());
+
+    const result = executeChannels(state, dirs, cwd, true);
+    expect(result.content[0]?.text).toContain('#memory');
+    expect(result.content[0]?.text).toContain('#dev');
+    expect(result.content[0]?.text).toContain('last activity');
   });
 
   it('shows session channels with live agents as active', () => {
@@ -168,7 +208,7 @@ describe('swarm channels', () => {
     expect(result.content[0]?.text).not.toContain('#session-old');
   });
 
-  it('shows all channels with --all flag', () => {
+  it('shows all channels including stale with --all flag', () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-messenger-channels-test-'));
     roots.add(cwd);
     const dirs = createDirs(cwd);
