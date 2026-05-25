@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.25.19](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.18...v0.25.19) (2026-05-25)
+
+
+### Features
+
+* **swarm:** add task stalled query for stalled task visibility ([3f96e8c](https://github.com/monotykamary/pi-messenger-swarm/commit/3f96e8cf96956c42a843c6de58bf34a9f50dbbcc))
+* **swarm:** inherit non-extension skills in spawned agents ([945642b](https://github.com/monotykamary/pi-messenger-swarm/commit/945642bfcded2601783e1a1ce235abecb12ce597))
+
 ### [0.25.18](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.17...v0.25.18) (2026-05-25)
 
 
