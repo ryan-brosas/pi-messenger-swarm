@@ -268,6 +268,41 @@ interface SpawnState {
   stderr: string;
 }
 
+function discoverSkills(cwd: string): string[] {
+  const skillPaths: string[] = [];
+
+  // Resolve the agent config directory (~/.pi/agent or PI_CODING_AGENT_DIR)
+  const agentDir = process.env.PI_CODING_AGENT_DIR
+    ? resolveTildePath(process.env.PI_CODING_AGENT_DIR)
+    : path.join(os.homedir(), '.pi', 'agent');
+  const userSkillsDir = path.join(agentDir, 'skills');
+  const projectSkillsDir = path.join(cwd, '.pi', 'skills');
+
+  for (const dir of [userSkillsDir, projectSkillsDir]) {
+    if (!fs.existsSync(dir)) continue;
+    try {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const skillMd = path.join(dir, entry.name, 'SKILL.md');
+        if (fs.existsSync(skillMd)) {
+          skillPaths.push(path.join(dir, entry.name));
+        }
+      }
+    } catch {
+      // Best effort — skip unreadable directories
+    }
+  }
+
+  return skillPaths;
+}
+
+function resolveTildePath(p: string): string {
+  if (p.startsWith('~/')) {
+    return path.join(os.homedir(), p.slice(2));
+  }
+  return p;
+}
+
 function createArgs(state: SpawnState, model?: string): string[] {
   const args = ['--mode', 'json', '--no-session'];
   if (model) {
@@ -279,6 +314,11 @@ function createArgs(state: SpawnState, model?: string): string[] {
     }
   }
   args.push('--extension', EXTENSION_DIR);
+
+  // Inherit non-extension skills so spawned agents can use cdp, zele, etc.
+  for (const skillPath of discoverSkills(state.cwd)) {
+    args.push('--skill', skillPath);
+  }
 
   if (state.systemPrompt.trim().length > 0) {
     const promptTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-messenger-swarm-subagent-'));
