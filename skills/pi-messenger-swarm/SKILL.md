@@ -187,6 +187,16 @@ Engage when:
 
 Let them own their execution. Your value is in strategic context and unblocking, not status checks.
 
+### Reading agent output
+
+The feed (`pi-messenger-swarm feed`) shows one-line previews. For full findings and detail, use:
+
+```bash
+pi-messenger-swarm task show task-1   # Full spec + progress log
+```
+
+Agents are instructed to write all findings into `task progress` and `task done` messages — not just their response text — so everything is in the task record.
+
 ## Storage layout
 
 Swarm data is **project-scoped by default** (isolated per project):
