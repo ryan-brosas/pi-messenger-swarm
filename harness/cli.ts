@@ -501,19 +501,34 @@ Environment:
   // --- Natural subcommands ---
   if (!(await startServer())) process.exit(1);
 
-  // Warn if the running server doesn't match the CLI's version.
-  // A stale server silently breaks identity resolution and other fixes.
+  // Auto-restart the server if its version doesn't match the CLI's.
+  // A stale server silently breaks identity resolution, session handling,
+  // and other fixes. The server is a long-lived daemon that survives
+  // pi session exits (detached + unref'd), so it can accumulate staleness
+  // across multiple sessions.
   try {
     const { body } = await httpGet(`${BASE_URL}/health`);
     const health = JSON.parse(body);
     if (health.version && health.version !== CLI_VERSION) {
       process.stderr.write(
-        `⚠️  Server version mismatch: server=${health.version}, cli=${CLI_VERSION}. ` +
-          `Restart with 'pi-messenger-swarm --restart' to pick up fixes.\n`
+        `Server version mismatch (server=${health.version}, cli=${CLI_VERSION}). Restarting...\n`
       );
+      // Kill the old server
+      try {
+        await httpPost(`${BASE_URL}/quit`, '');
+      } catch {
+        // Server may already be gone
+      }
+      // Wait for the old server to release the port
+      await new Promise((r) => setTimeout(r, 500));
+      // Spawn a fresh one
+      if (!(await startServer())) {
+        process.stderr.write(`Failed to restart server after version mismatch.\n`);
+        process.exit(1);
+      }
     }
   } catch {
-    // Health check failed — not critical, continue
+    // Health check failed — server might not be up yet, startServer handles it
   }
 
   const args = [...rawArgs]; // mutable copy
