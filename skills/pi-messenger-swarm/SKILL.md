@@ -100,7 +100,9 @@ pi-messenger-swarm swarm [--channel dev]
 ```bash
 pi-messenger-swarm task list
 pi-messenger-swarm task ready
+pi-messenger-swarm task stalled
 pi-messenger-swarm task show task-3
+pi-messenger-swarm task stalled              # List tasks with no recent progress
 pi-messenger-swarm task create --title "Fix token refresh race"
 pi-messenger-swarm task create --title "..." --content "..." --depends-on task-2
 pi-messenger-swarm task claim task-3
@@ -167,6 +169,7 @@ Good pattern: read the feed at decision points, then act.
 - Before claiming: check what's ready
 - After spawning: trust the agent to execute
 - On uncertainty: read the feed, then message the agent directly
+- Periodically: check for stalled tasks that need re-delegation
 
 ### Spawn-and-delegate, don't hoard
 

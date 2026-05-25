@@ -19,6 +19,7 @@ export {
   getSummaryForTasks,
   getReadyTasks,
   getReadyTasksForTasks,
+  getStalledTasks,
   getTaskSpec,
   getTaskProgress,
   _resetCleanupThrottle,

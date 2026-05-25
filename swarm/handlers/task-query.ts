@@ -83,6 +83,39 @@ export function taskShow(
   });
 }
 
+export function taskStalled(cwd: string, channelId: string, sessionId: string) {
+  const stalled = taskStore.getStalledTasks(cwd, sessionId);
+  if (stalled.length === 0) {
+    return result('No stalled tasks.', {
+      mode: 'task.stalled',
+      channel: normalizeChannelId(channelId),
+      stalled: [],
+    });
+  }
+
+  const lines = [
+    '# Stalled Tasks',
+    '',
+    ...stalled.map((task) => {
+      const lastActivity = task.progress_log?.length
+        ? task.progress_log[task.progress_log.length - 1].timestamp
+        : task.claimed_at!;
+      const age = Math.round((Date.now() - Date.parse(lastActivity)) / 60_000);
+      return `⏳ ${task.id}: ${task.title} [${task.claimed_by}] · ${age}m since last activity`;
+    }),
+    '',
+    'Options:',
+    '  pi-messenger-swarm send <agent> "status check on <task-id>?"',
+    '  pi-messenger-swarm task reset <task-id>  # reclaim for another agent',
+  ];
+
+  return result(lines.join('\n'), {
+    mode: 'task.stalled',
+    channel: normalizeChannelId(channelId),
+    stalled,
+  });
+}
+
 export function taskReady(cwd: string, channelId: string, sessionId: string) {
   const ready = taskStore.getReadyTasks(cwd, sessionId);
   if (ready.length === 0) {

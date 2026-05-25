@@ -2,7 +2,7 @@ import type { MessengerActionParams } from '../../action-types.js';
 import type { MessengerState } from '../../lib.js';
 import { result } from '../result.js';
 import { taskCreate } from './task-create.js';
-import { taskList, taskShow, taskReady } from './task-query.js';
+import { taskList, taskShow, taskReady, taskStalled } from './task-query.js';
 import { taskClaim, taskUnclaim, taskDone, taskReset } from './task-lifecycle.js';
 import { taskBlock, taskUnblock } from './task-block.js';
 import { taskDelete, taskArchiveDone } from './task-archive.js';
@@ -37,6 +37,8 @@ export function executeTask(
       return taskUnblock(params, state, cwd, channelId, sessionId);
     case 'ready':
       return taskReady(cwd, channelId, sessionId);
+    case 'stalled':
+      return taskStalled(cwd, channelId, sessionId);
     case 'progress':
       return taskProgress(params, state, cwd, channelId, sessionId);
     case 'reset':

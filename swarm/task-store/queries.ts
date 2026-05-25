@@ -155,6 +155,28 @@ export function getReadyTasksForTasks(tasks: SwarmTask[]): SwarmTask[] {
   return tasks.filter((t) => t.status === 'todo' && t.depends_on.every((dep) => doneIds.has(dep)));
 }
 
+export function getStalledTasks(
+  cwd: string,
+  sessionId: string,
+  stallThresholdMs: number = 10 * 60 * 1000
+): SwarmTask[] {
+  const tasks = getTasks(cwd, sessionId);
+  const now = Date.now();
+
+  return tasks.filter((task) => {
+    if (task.status !== 'in_progress') return false;
+
+    // Last activity: most recent progress_log entry, or claimed_at
+    const lastActivity = task.progress_log?.length
+      ? task.progress_log[task.progress_log.length - 1].timestamp
+      : task.claimed_at;
+
+    if (!lastActivity) return false;
+
+    return now - Date.parse(lastActivity) >= stallThresholdMs;
+  });
+}
+
 export function getTaskSpec(cwd: string, sessionId: string, taskId: string): string | null {
   return readTaskSpec(cwd, sessionId, taskId);
 }
