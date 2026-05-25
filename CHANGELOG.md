@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.25.16](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.15...v0.25.16) (2026-05-25)
+
+
+### Features
+
+* add server version to health endpoint and CLI version mismatch warning ([a43482f](https://github.com/monotykamary/pi-messenger-swarm/commit/a43482f1ad69d5e5716867f2dc0dd3041fea8274))
+
+
+### Bug Fixes
+
+* auto-restart harness server on version mismatch ([dfb593a](https://github.com/monotykamary/pi-messenger-swarm/commit/dfb593a44ab5364a33e7c61d88a7253bcfb10868))
+
 ### [0.25.15](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.14...v0.25.15) (2026-05-25)
 
 
