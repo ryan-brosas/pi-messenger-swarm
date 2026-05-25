@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.25.17](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.16...v0.25.17) (2026-05-25)
+
+
+### Bug Fixes
+
+* preserve coordinator channel context across harness restarts ([7763df3](https://github.com/monotykamary/pi-messenger-swarm/commit/7763df3cf566cc2f133a18e634f54003ad3c64c4))
+* preserve spawned agents across harness server restarts ([7b6015a](https://github.com/monotykamary/pi-messenger-swarm/commit/7b6015aba27d6b0b7b8978a7c3c88c1c26510cc2))
+
 ### [0.25.16](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.15...v0.25.16) (2026-05-25)
 
 
