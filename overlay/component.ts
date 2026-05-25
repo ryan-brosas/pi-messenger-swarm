@@ -153,12 +153,14 @@ export class MessengerOverlay implements Component, Focusable {
   /**
    * Get the list of discoverable channel IDs on disk, cached with a TTL.
    *
-   * Simple discovery rules:
+   * Discovery rules:
    * - Channels the main agent has joined: always visible
    * - #memory: always visible (cross-session by design)
    * - Named channels on disk: always visible (kafka-like — anyone can subscribe)
    * - Session channels from this session: visible
-   * - Session channels from other sessions: visible only if recently active (< 30 min)
+   * - Session channels from other sessions: HIDDEN by default.
+   *   They only appear if the agent has explicitly joined them.
+   *   Use `channels --all` to discover them from the CLI.
    */
   private getDiscoveredChannelIds(): string[] {
     const now = Date.now();
@@ -167,7 +169,6 @@ export class MessengerOverlay implements Component, Focusable {
     }
     const mySessionId = this.state.contextSessionId ?? '';
     const joinedSet = new Set(this.state.joinedChannels);
-    const staleThresholdMs = 30 * 60 * 1000; // 30 minutes
     const channels = listChannels(this.dirs)
       .filter((c) => {
         // Always show channels the main agent has joined
@@ -178,15 +179,9 @@ export class MessengerOverlay implements Component, Focusable {
         if (c.type === 'named') return true;
         // Session channels from this session: visible
         if (c.type === 'session' && c.sessionId === mySessionId) return true;
-        // Session channels from other sessions: visible only if recently active
-        if (c.type === 'session') {
-          try {
-            const stat = fs.statSync(path.join(this.dirs.base, 'channels', `${c.id}.jsonl`));
-            return now - stat.mtimeMs < staleThresholdMs;
-          } catch {
-            return false;
-          }
-        }
+        // Session channels from other sessions: hidden by default.
+        // Only visible if the agent has explicitly joined them (caught by
+        // the joinedSet check above). Otherwise, discover via `channels --all`.
         return false;
       })
       .map((c) => c.id);
