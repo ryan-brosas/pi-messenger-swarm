@@ -28,6 +28,7 @@ import {
 import { displayChannelLabel } from './channel.js';
 import * as store from './store.js';
 import { getContextSessionId, getEffectiveSessionId } from './store/shared.js';
+import { syncChannelStateFromDisk } from './store/agents.js';
 import { MessengerOverlay, type OverlayCallbacks } from './overlay/component.js';
 import { MessengerConfigOverlay } from './overlay/config-overlay.js';
 import { loadConfig, matchesAutoRegisterPath, type MessengerConfig } from './config.js';
@@ -194,6 +195,11 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
           sendRegistrationContext(ctx);
         }
       }
+
+      // Sync channel state from disk so the overlay opens on the
+      // most recent active channel (e.g. a named channel the agent
+      // joined via the CLI), not a stale session channel.
+      syncChannelStateFromDisk(state, dirs);
 
       if (overlayHandle && overlayHandle.isHidden()) {
         overlayHandle.setHidden(false);
