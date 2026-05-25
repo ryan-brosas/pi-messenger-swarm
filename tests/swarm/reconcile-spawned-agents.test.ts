@@ -173,66 +173,6 @@ describe('reconcileSpawnedAgents', () => {
     expect(agents[0]?.status).toBe('running');
   });
 
-  it('marks stale agents without PIDs as failed', () => {
-    const cwd = tempCwd();
-    const sessionId = 'reconcile-stale';
-    // Agent started 3 hours ago (exceeds the 2-hour threshold)
-    const startedAt = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
-
-    appendRawEvent(cwd, sessionId, {
-      id: 'agent-stale',
-      type: 'spawned',
-      timestamp: startedAt,
-      agent: {
-        id: 'agent-stale',
-        cwd,
-        name: 'StaleAgent',
-        role: 'Worker',
-        objective: 'Old and stale',
-        status: 'running',
-        startedAt,
-        sessionId,
-      } as SpawnedAgent,
-    });
-    // No PID progress event — simulates agents from before the pid field was added
-
-    const reconciled = reconcileSpawnedAgents(cwd, sessionId);
-    expect(reconciled).toBe(1);
-
-    const agents = listSpawnedHistory(cwd, sessionId);
-    expect(agents[0]?.status).toBe('failed');
-    expect(agents[0]?.error).toContain('staleness threshold');
-  });
-
-  it('leaves recent agents without PIDs alone', () => {
-    const cwd = tempCwd();
-    const sessionId = 'reconcile-recent';
-    const startedAt = new Date().toISOString();
-
-    appendRawEvent(cwd, sessionId, {
-      id: 'agent-recent',
-      type: 'spawned',
-      timestamp: startedAt,
-      agent: {
-        id: 'agent-recent',
-        cwd,
-        name: 'RecentAgent',
-        role: 'Worker',
-        objective: 'Still young',
-        status: 'running',
-        startedAt,
-        sessionId,
-      } as SpawnedAgent,
-    });
-
-    const reconciled = reconcileSpawnedAgents(cwd, sessionId);
-    expect(reconciled).toBe(0);
-
-    const agents = listSpawned(cwd, sessionId);
-    expect(agents).toHaveLength(1);
-    expect(agents[0]?.status).toBe('running');
-  });
-
   it('skips agents that already have a terminal status', () => {
     const cwd = tempCwd();
     const sessionId = 'reconcile-terminal';

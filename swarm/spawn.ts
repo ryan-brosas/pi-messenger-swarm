@@ -658,6 +658,9 @@ export function reconcileSpawnedAgents(cwd: string, sessionId: string): number {
   for (const agent of persisted) {
     if (agent.status !== 'running') continue;
 
+    // JSON-mode spawns always have a PID; process.exit handles the normal path.
+    // This covers harness crash-restart: agent process already exited but the
+    // close handler never fired because runtimes was lost.
     if (agent.pid && !isProcessAlive(agent.pid)) {
       appendEvent(cwd, sessionId, {
         id: agent.id,
@@ -671,26 +674,6 @@ export function reconcileSpawnedAgents(cwd: string, sessionId: string): number {
         },
       });
       reconciled++;
-      continue;
-    }
-
-    if (!agent.pid) {
-      const runningForMs = Date.now() - Date.parse(agent.startedAt);
-      const STALE_THRESHOLD_MS = 2 * 60 * 60 * 1000;
-      if (runningForMs > STALE_THRESHOLD_MS) {
-        appendEvent(cwd, sessionId, {
-          id: agent.id,
-          type: 'failed',
-          timestamp: new Date().toISOString(),
-          agent: {
-            status: 'failed',
-            endedAt: new Date().toISOString(),
-            exitCode: 1,
-            error: 'Agent exceeded staleness threshold (no PID, no completion event)',
-          },
-        });
-        reconciled++;
-      }
     }
   }
 
