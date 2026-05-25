@@ -9,9 +9,9 @@ Multi-agent coordination via the `pi-messenger-swarm` CLI.
 
 The CLI auto-spawns a long-lived HTTP server (the **harness**) on first use. Every call dispatches an action to the harness, which holds persistent state — agent registrations, task store, feed — across calls.
 
-- No planning agent
 - No fixed planner/worker/reviewer roles
 - Any joined or spawned agent can create/claim/complete tasks
+- When you spawn agents for tasks, act as coordinator — delegate, don't hoard
 
 ## Setup
 
@@ -40,19 +40,29 @@ pi-messenger-swarm swarm
 pi-messenger-swarm task list
 ```
 
-3. Claim work before implementing
+3. Delegate before claiming
+
+If you spawned subagents for specific tasks, **do not claim those tasks yourself** — your spawned agents will claim and execute them. Only claim tasks you intend to implement personally (typically tasks you did not delegate).
+
+```bash
+# Delegate to a spawned agent
+pi-messenger-swarm spawn --task-id task-1 --role Debugger "Fix the race condition"
+# Do NOT also: pi-messenger-swarm task claim task-1
+```
+
+4. Claim only tasks you will implement yourself
 
 ```bash
 pi-messenger-swarm task claim task-1
 ```
 
-4. Reserve files before edits
+5. Reserve files before edits
 
 ```bash
 pi-messenger-swarm reserve src/auth/ --reason task-1
 ```
 
-5. Log progress and complete
+6. Log progress and complete
 
 ```bash
 pi-messenger-swarm task progress task-1 "Implemented JWT verification"
@@ -152,7 +162,19 @@ Good pattern: inspect once at decision points, act, move on.
 - After spawning: trust the agent to execute
 - On uncertainty: message the agent directly
 
-### Spawn-and-collaborate, don't coordinate
+### Spawn-and-delegate, don't hoard
+
+When you spawn subagents, you are the coordinator. You create the tasks, spawn the agents, then **step back**. Let the agents claim and execute their assigned work — do not claim those tasks yourself.
+
+Your role after spawning:
+
+- Monitor progress via `pi-messenger-swarm swarm` or `pi-messenger-swarm feed`
+- Unblock agents when they hit problems (share context, clarify scope)
+- Handle only tasks you did **not** delegate to a subagent
+
+Anti-pattern: spawning agents then claiming all tasks yourself. This leaves spawned agents idle with nothing to do.
+
+### Collaborate, don't micromanage
 
 Subagents execute with full context. They report progress through task updates and messaging. Stay available for collaboration without inserting yourself into their loop.
 
