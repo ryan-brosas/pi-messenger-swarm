@@ -131,6 +131,33 @@ pi-messenger-swarm spawn stop <id>
 
 > **Shell safety**: When mission text contains backticks, `${...}`, parentheses, or other shell-sensitive characters, use `--message-file <path>` instead of a positional argument. Write the prompt to a temp file first to avoid bash interpolation corrupting the mission text.
 
+#### Agent file format
+
+`--agent-file` points to a markdown file with optional YAML frontmatter. The frontmatter supplies role/persona/model/objective defaults; the body after `---` becomes the system prompt.
+
+```markdown
+---
+role: Security Reviewer
+persona: Paranoid about edge cases
+objective: Review code for security vulnerabilities
+---
+
+You are a security expert. Focus on input validation and auth boundaries.
+```
+
+Frontmatter fields (all optional):
+
+| Field       | Purpose                                    |
+| ----------- | ------------------------------------------ |
+| `role`      | Agent role label (default: `Subagent`)     |
+| `persona`   | Tone/behavior modifier                     |
+| `model`     | Default model (overridable at spawn time)  |
+| `objective` | Default mission (overridable via CLI text) |
+
+If the file has no frontmatter, the entire file content is used as the system prompt with `role` defaulting to `Subagent`.
+
+CLI flags override frontmatter values — for example, `--role` overrides `role:`, and positional mission text overrides `objective:`.
+
 ### Server management
 
 | Command                        | Behavior                                    |
