@@ -407,19 +407,16 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
 
   pi.on('session_shutdown', async () => {
     const cwd = process.cwd();
-    stopAllSpawned(cwd); // In-process safety net
+    stopAllSpawned(cwd); // In-process safety net for extension-spawned agents
     stopStatusHeartbeat();
-    // Tell the harness to stop all agents and shut down.
-    // This works even if the harness was started by a previous session
-    // (harnessServer.stop() only works if we spawned the harness ourselves).
-    // Fire-and-forget: the quit+wait is non-blocking so session resume
-    // is not delayed by the harness shutdown cadence.
-    const port = Number(process.env.PI_MESSENGER_PORT ?? 9877);
-    const quitP = fetch(`http://127.0.0.1:${port}/quit`, { method: 'POST' })
-      .then(() => new Promise((r) => setTimeout(r, 2500)))
-      .then(() => harnessServer.stop())
-      .catch(() => harnessServer.stop());
-    void quitP;
+    // Do NOT send /quit to the harness server on session shutdown.
+    // The harness is a long-lived daemon (detached + unref'd) designed to
+    // survive across pi sessions. Killing it destroys all spawned subagents
+    // that may still be working. The harness handles agent cleanup via its
+    // own session tracking — it will unregister this session's agent when
+    // handleSessionShutdown runs below. If the harness truly needs to stop,
+    // the user can run `pi-messenger-swarm --stop` explicitly.
+    harnessServer.stop(); // Only stops the process WE spawned (if any)
     overlayOpening = false;
     overlayHandle = null;
     overlayTui = null;

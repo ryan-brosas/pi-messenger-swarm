@@ -474,8 +474,9 @@ Environment:
         process.stdout.write(body + '\n');
         return;
       }
-      // Fallback: full stop + start if soft restart not available
-      await httpPost(`${BASE_URL}/quit`, '');
+      // Fallback: full stop + start if soft restart not available.
+      // Use x-preserve-spawns so running agents survive the restart.
+      await httpPost(`${BASE_URL}/quit`, '', { 'x-preserve-spawns': '1' });
       await new Promise((r) => setTimeout(r, 200));
     }
     await startServer();
@@ -506,16 +507,21 @@ Environment:
   // and other fixes. The server is a long-lived daemon that survives
   // pi session exits (detached + unref'd), so it can accumulate staleness
   // across multiple sessions.
+  //
+  // IMPORTANT: The restart uses x-preserve-spawns so the old server
+  // persists running spawn state to disk and exits WITHOUT killing
+  // spawned agent processes. The new server restores the runtimes and
+  // reconnects to the surviving agents.
   try {
     const { body } = await httpGet(`${BASE_URL}/health`);
     const health = JSON.parse(body);
     if (health.version && health.version !== CLI_VERSION) {
       process.stderr.write(
-        `Server version mismatch (server=${health.version}, cli=${CLI_VERSION}). Restarting...\n`
+        `Server version mismatch (server=${health.version}, cli=${CLI_VERSION}). Restarting with spawn preservation...\n`
       );
-      // Kill the old server
+      // Tell the old server to quit but preserve spawned agents
       try {
-        await httpPost(`${BASE_URL}/quit`, '');
+        await httpPost(`${BASE_URL}/quit`, '', { 'x-preserve-spawns': '1' });
       } catch {
         // Server may already be gone
       }

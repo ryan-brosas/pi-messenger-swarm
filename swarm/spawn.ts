@@ -20,9 +20,15 @@ interface SpawnRuntime {
   stopping: boolean;
   persisted?: boolean;
   idleTimer?: ReturnType<typeof setTimeout>;
+  // Runtime restored from disk after server restart — no ChildProcess handle,
+  // just a PID we poll for liveness.
+  detached?: boolean;
 }
 
 const runtimes = new Map<string, SpawnRuntime>();
+
+// Interval handle for polling detached runtime PIDs
+let detachedPollTimer: ReturnType<typeof setInterval> | null = null;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -555,6 +561,26 @@ export function stopSpawn(cwd: string, id: string): boolean {
   const runtime = runtimes.get(id);
   if (!runtime) return false;
   if (runtime.record.cwd !== cwd) return false;
+  // Detached runtimes use PID liveness checks
+  if (runtime.detached) {
+    if (runtime.record.pid && isProcessAlive(runtime.record.pid)) {
+      runtime.stopping = true;
+      try {
+        process.kill(runtime.record.pid, 'SIGTERM');
+      } catch {
+        /* already dead */
+      }
+      setTimeout(() => {
+        try {
+          if (isProcessAlive(runtime.record.pid!)) process.kill(runtime.record.pid!, 'SIGKILL');
+        } catch {
+          /* already dead */
+        }
+      }, 4000).unref();
+      return true;
+    }
+    return false;
+  }
   if (runtime.process.exitCode !== null) return false;
 
   runtime.stopping = true;
@@ -571,6 +597,25 @@ export function stopSpawn(cwd: string, id: string): boolean {
 export function stopAllSpawned(cwd?: string): void {
   for (const [id, runtime] of runtimes.entries()) {
     if (cwd && runtime.record.cwd !== cwd) continue;
+    if (runtime.detached) {
+      if (runtime.record.pid && isProcessAlive(runtime.record.pid)) {
+        runtime.stopping = true;
+        try {
+          process.kill(runtime.record.pid, 'SIGTERM');
+        } catch {
+          /* already dead */
+        }
+        const pid = runtime.record.pid;
+        setTimeout(() => {
+          try {
+            if (isProcessAlive(pid)) process.kill(pid, 'SIGKILL');
+          } catch {
+            /* already dead */
+          }
+        }, 4000).unref();
+      }
+      continue;
+    }
     if (runtime.process.exitCode !== null) continue;
     runtime.stopping = true;
     runtime.process.kill('SIGTERM');
@@ -587,6 +632,16 @@ export function stopAllSpawned(cwd?: string): void {
 export function forceKillAllSpawned(cwd?: string): void {
   for (const [_id, runtime] of runtimes.entries()) {
     if (cwd && runtime.record.cwd !== cwd) continue;
+    if (runtime.detached) {
+      if (runtime.record.pid && isProcessAlive(runtime.record.pid)) {
+        try {
+          process.kill(runtime.record.pid, 'SIGKILL');
+        } catch {
+          /* already dead */
+        }
+      }
+      continue;
+    }
     if (runtime.process.exitCode !== null) continue;
     try {
       runtime.process.kill('SIGKILL');
@@ -601,8 +656,10 @@ export function cleanupExitedSpawned(cwd: string, sessionId: string): number {
   for (const [id, runtime] of runtimes.entries()) {
     if (runtime.record.cwd !== cwd) continue;
     if (runtime.record.sessionId !== sessionId) continue;
-    if (runtime.process.exitCode === null && runtime.process.signalCode === null) continue;
     if (runtime.persisted) continue;
+    // Detached runtimes are handled by the PID polling loop
+    if (runtime.detached) continue;
+    if (runtime.process.exitCode === null && runtime.process.signalCode === null) continue;
 
     runtime.persisted = true;
 
@@ -684,11 +741,328 @@ export function getRunningSpawnCount(cwd?: string): number {
   let count = 0;
   for (const runtime of runtimes.values()) {
     if (cwd && runtime.record.cwd !== cwd) continue;
-    if (runtime.process.exitCode === null && runtime.record.status === 'running') count++;
+    if (runtime.record.status !== 'running') continue;
+    if (runtime.detached) {
+      // Detached runtimes are tracked by PID liveness
+      if (runtime.record.pid && isProcessAlive(runtime.record.pid)) count++;
+    } else if (runtime.process.exitCode === null) {
+      count++;
+    }
   }
   return count;
 }
 
 export function clearSpawnStateForTests(): void {
   runtimes.clear();
+  if (detachedPollTimer) {
+    clearInterval(detachedPollTimer);
+    detachedPollTimer = null;
+  }
+}
+
+// Persist active runtimes to a single file in the server's messenger
+// directory so a restarted harness server can reconnect to surviving
+// spawned agents. Only runtimes with a known PID and 'running' status
+// are persisted.
+//
+// All entries go to a single file (not per-project) because the harness
+// server handles multiple projects and the new server instance needs to
+// find all runtimes from one known location on startup.
+function getRuntimesFilePath(messengerDir: string): string {
+  return path.join(messengerDir, 'spawn-runtimes.json');
+}
+
+export function persistRuntimes(messengerDir: string): void {
+  const entries: Array<{
+    id: string;
+    pid: number;
+    record: SpawnedAgent;
+    startMs: number;
+  }> = [];
+
+  for (const [id, runtime] of runtimes.entries()) {
+    // Only persist runtimes that are still running and have a PID
+    if (runtime.record.status !== 'running') continue;
+    if (!runtime.record.pid) continue;
+    // Skip already-dead processes
+    if (!runtime.detached && runtime.process.exitCode !== null) continue;
+    entries.push({
+      id,
+      pid: runtime.record.pid!,
+      record: { ...runtime.record },
+      startMs: runtime.startMs,
+    });
+  }
+
+  if (entries.length === 0) {
+    // Clean up the file if no runtimes need persisting
+    clearPersistedRuntimes(messengerDir);
+    return;
+  }
+
+  const filePath = getRuntimesFilePath(messengerDir);
+  try {
+    ensureDir(path.dirname(filePath));
+    fs.writeFileSync(filePath, JSON.stringify(entries, null, 2), 'utf-8');
+  } catch {
+    // Best effort
+  }
+}
+
+/**
+ * Restore runtimes from a previous server instance. Creates lightweight
+ * "detached" runtime entries that monitor PID liveness instead of relying
+ * on ChildProcess events.
+ */
+export function restoreRuntimes(messengerDir: string): number {
+  const filePath = getRuntimesFilePath(messengerDir);
+  if (!fs.existsSync(filePath)) return 0;
+
+  let entries: Array<{
+    id: string;
+    pid: number;
+    record: SpawnedAgent;
+    startMs: number;
+  }>;
+
+  try {
+    entries = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    if (!Array.isArray(entries)) return 0;
+  } catch {
+    return 0;
+  }
+
+  const count = restoreRuntimeEntries(entries);
+  if (count > 0) startDetachedPolling();
+  return count;
+}
+
+/**
+ * Reconnect orphaned agents found in the event log whose processes are
+ * still alive. This handles the crash case: the server died without
+ * calling persistRuntimes(), so no spawn-runtimes.json exists, but agent
+ * processes are still running.
+ *
+ * Scans each session's events jsonl for agents with status 'running'
+ * and reattaches to those with live PIDs.
+ */
+export function reconcileAndRestoreOrphans(messengerDir: string): number {
+  const agentsDir = path.join(messengerDir, 'agents');
+  if (!fs.existsSync(agentsDir)) return 0;
+
+  let jsonlFiles: string[];
+  try {
+    jsonlFiles = fs.readdirSync(agentsDir).filter((f) => f.endsWith('.jsonl'));
+  } catch {
+    return 0;
+  }
+
+  // Collect orphans from all session event logs
+  const entries: Array<{
+    id: string;
+    pid: number;
+    record: SpawnedAgent;
+    startMs: number;
+  }> = [];
+
+  for (const jsonlFile of jsonlFiles) {
+    const filePath = path.join(agentsDir, jsonlFile);
+    const agents = loadSpawnedAgentsFromFile(filePath);
+    for (const agent of agents) {
+      // Skip if already known (restored from spawn-runtimes.json or already tracked)
+      if (runtimes.has(agent.id)) continue;
+      if (agent.status !== 'running') continue;
+      if (!agent.pid) continue;
+      if (!isProcessAlive(agent.pid)) {
+        // Agent's event log says running but the process is dead.
+        // Write the tombstone so the event log is consistent.
+        const sessionId = jsonlFile.replace(/\.jsonl$/, '');
+        appendEvent(agent.cwd, sessionId, {
+          id: agent.id,
+          type: 'failed',
+          timestamp: new Date().toISOString(),
+          agent: {
+            status: 'failed',
+            endedAt: new Date().toISOString(),
+            exitCode: 1,
+            error: 'Process exited (detected by orphan reconciliation on server startup)',
+          },
+        });
+        continue;
+      }
+      entries.push({
+        id: agent.id,
+        pid: agent.pid!,
+        record: agent,
+        startMs: Date.parse(agent.startedAt) || Date.now(),
+      });
+    }
+  }
+
+  if (entries.length === 0) return 0;
+
+  const count = restoreRuntimeEntries(entries);
+  if (count > 0) startDetachedPolling();
+  return count;
+}
+
+function restoreRuntimeEntries(
+  entries: Array<{
+    id: string;
+    pid: number;
+    record: SpawnedAgent;
+    startMs: number;
+  }>
+): number {
+  let restored = 0;
+  for (const entry of entries) {
+    // Skip if already tracked (e.g., same server re-read)
+    if (runtimes.has(entry.id)) continue;
+
+    // Only restore if the process is still alive
+    if (!isProcessAlive(entry.pid)) continue;
+
+    // Create a dummy ChildProcess-like object for the detached runtime.
+    // We can't re-attach to the real process, but we need something that
+    // satisfies the SpawnRuntime interface without crashing on property reads.
+    const fakeProcess = {
+      pid: entry.pid,
+      exitCode: null as number | null,
+      signalCode: null as string | null,
+      kill: (sig?: string) => {
+        try {
+          process.kill(entry.pid, sig as any);
+        } catch {
+          /* already dead */
+        }
+        return true;
+      },
+      on: () => fakeProcess as any,
+      off: () => fakeProcess as any,
+      once: () => fakeProcess as any,
+      removeAllListeners: () => fakeProcess as any,
+      stdout: null as any,
+      stderr: null as any,
+      stdin: null as any,
+    } as unknown as ChildProcess;
+
+    runtimes.set(entry.id, {
+      process: fakeProcess,
+      record: entry.record,
+      startMs: entry.startMs,
+      stopping: false,
+      detached: true,
+    });
+    restored++;
+  }
+
+  return restored;
+}
+
+/**
+ * Load spawned agents from a specific jsonl file (not per-session lookup).
+ */
+function loadSpawnedAgentsFromFile(filePath: string): SpawnedAgent[] {
+  if (!fs.existsSync(filePath)) return [];
+
+  const agentsById = new Map<string, SpawnedAgent>();
+
+  const content = fs.readFileSync(filePath, 'utf-8');
+  for (const line of content.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const event = JSON.parse(line) as SpawnEvent;
+      const existing = agentsById.get(event.id);
+      const merged: SpawnedAgent = existing
+        ? { ...existing, ...event.agent, id: event.id }
+        : { ...(event.agent as SpawnedAgent), id: event.id };
+      agentsById.set(event.id, merged);
+    } catch {
+      // Skip malformed lines
+    }
+  }
+
+  return Array.from(agentsById.values());
+}
+
+function startDetachedPolling(): void {
+  if (detachedPollTimer) return;
+  detachedPollTimer = setInterval(() => {
+    for (const [id, runtime] of runtimes.entries()) {
+      if (!runtime.detached) continue;
+      if (runtime.record.status !== 'running') continue;
+      if (!runtime.record.pid) continue;
+
+      if (!isProcessAlive(runtime.record.pid)) {
+        // Process died — check if a terminal event already exists in the
+        // jsonl (written by the old server's close handler before it exited).
+        // This prevents writing a duplicate 'failed' event that would
+        // override a legitimate 'completed' event.
+        const sessionId = runtime.record.sessionId || '';
+        let alreadyFinalized = false;
+        if (sessionId) {
+          const jsonlPath = getAgentEventsJsonlPath(runtime.record.cwd, sessionId);
+          const existingAgents = loadSpawnedAgentsFromFile(jsonlPath);
+          const existing = existingAgents.find((a) => a.id === id);
+          if (existing && existing.status !== 'running') {
+            // Already has a terminal event from the old server — adopt it
+            runtime.record = { ...runtime.record, ...existing, id };
+            runtime.persisted = true;
+            alreadyFinalized = true;
+          }
+        }
+
+        if (!alreadyFinalized) {
+          // No prior terminal event — write our own
+          runtime.record = {
+            ...runtime.record,
+            status: 'failed',
+            endedAt: new Date().toISOString(),
+            exitCode: 1,
+            error: 'Process exited (detected by detached runtime poll)',
+          };
+          runtime.persisted = true;
+
+          if (sessionId) {
+            appendEvent(runtime.record.cwd, sessionId, {
+              id,
+              type: 'failed',
+              timestamp: runtime.record.endedAt!,
+              agent: {
+                status: 'failed',
+                endedAt: runtime.record.endedAt,
+                exitCode: 1,
+                error: runtime.record.error,
+              },
+            });
+            generateAgentFile(runtime.record.cwd, sessionId, runtime.record);
+          }
+        }
+
+        removeLiveWorker(runtime.record.cwd, runtime.record.taskId || spawnLiveKey(id));
+      }
+    }
+
+    // Stop polling if no detached runtimes remain
+    const hasDetached = Array.from(runtimes.values()).some(
+      (r) => r.detached && r.record.status === 'running'
+    );
+    if (!hasDetached && detachedPollTimer) {
+      clearInterval(detachedPollTimer);
+      detachedPollTimer = null;
+    }
+  }, 5000).unref();
+}
+
+/**
+ * Remove the persisted runtimes file after a successful restore so a
+ * subsequent server start doesn't re-restore stale entries.
+ */
+export function clearPersistedRuntimes(messengerDir: string): void {
+  const filePath = getRuntimesFilePath(messengerDir);
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch {
+    // Best effort
+  }
 }

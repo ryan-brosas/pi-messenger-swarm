@@ -34,7 +34,15 @@ import {
   patchChannelSessionId,
 } from '../channel.js';
 import { ensureDirSync, getGitBranch, normalizeCwd } from '../store/shared.js';
-import { stopAllSpawned, forceKillAllSpawned } from '../swarm/spawn.js';
+import {
+  stopAllSpawned,
+  forceKillAllSpawned,
+  persistRuntimes,
+  restoreRuntimes,
+  reconcileAndRestoreOrphans,
+  clearPersistedRuntimes,
+  getRunningSpawnCount,
+} from '../swarm/spawn.js';
 
 function getMessengerDirs(cwd?: string): Dirs {
   const effectiveCwd = cwd ?? process.env.PI_MESSENGER_CWD ?? process.cwd();
@@ -58,6 +66,27 @@ const startupDirs = getMessengerDirs();
 ensureDirSync(startupDirs.registry);
 ensureDirSync(getChannelsDir(startupDirs));
 ensureDefaultNamedChannels(startupDirs);
+
+// Restore spawned agent runtimes from a previous server instance.
+// If the harness was restarted (version mismatch, crash, etc.), spawned
+// agents survive because they're independent processes — we just need to
+// pick up tracking them again.
+//
+// Two restore paths:
+// 1. Clean restart: spawn-runtimes.json was written by persistRuntimes()
+//    before the old server exited.
+// 2. Crash recovery: no spawn-runtimes.json exists, but the event log
+//    still shows agents with status 'running'. reconcileAndRestoreOrphans()
+//    scans the log and reconnects to live PIDs.
+let restoredCount = restoreRuntimes(startupDirs.base);
+if (restoredCount > 0) {
+  serverLog(`restored ${restoredCount} spawned agent runtime(s) from previous server instance`);
+  clearPersistedRuntimes(startupDirs.base);
+}
+const orphanCount = reconcileAndRestoreOrphans(startupDirs.base);
+if (orphanCount > 0) {
+  serverLog(`reconnected ${orphanCount} orphaned agent(s) from event log`);
+}
 
 // Per-request directory cache: cwd → Dirs (avoids recomputing on every request).
 const dirsCache = new Map<string, Dirs>();
@@ -428,7 +457,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     return;
   }
 
-  // Health check — report uptime and known agents from disk
+  // Health check — report uptime, known agents, and running spawns
   if (req.method === 'GET' && url.pathname === '/health') {
     const agents: string[] = [];
     try {
@@ -445,6 +474,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         agents,
         version: SERVER_VERSION,
         cwd: normalizeCwd(process.cwd()),
+        runningSpawns: getRunningSpawnCount(),
       })
     );
     return;
@@ -609,15 +639,34 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   }
 
   // Graceful shutdown
+  // By default, kills all spawned agents (hard quit).
+  // With x-preserve-spawns header, persists runtime state to disk and
+  // exits without killing spawned agents — they survive as independent
+  // processes and the next server instance reconnects via restoreRuntimes().
   if (req.method === 'POST' && url.pathname === '/quit') {
-    stopAllSpawned();
-    res.writeHead(200, TEXT_JSON);
-    res.end(JSON.stringify({ ok: true }));
-    setTimeout(() => {
-      forceKillAllSpawned();
-      server.close();
-      process.exit(0);
-    }, 2000);
+    const preserveSpawns = header(req, 'x-preserve-spawns') === '1';
+
+    if (preserveSpawns) {
+      persistRuntimes(startupDirs.base);
+      serverLog(
+        'graceful shutdown (preserve-spawns): persisted runtimes, not killing spawned agents'
+      );
+      res.writeHead(200, TEXT_JSON);
+      res.end(JSON.stringify({ ok: true, preservedSpawns: true }));
+      setTimeout(() => {
+        server.close();
+        process.exit(0);
+      }, 500);
+    } else {
+      stopAllSpawned();
+      res.writeHead(200, TEXT_JSON);
+      res.end(JSON.stringify({ ok: true }));
+      setTimeout(() => {
+        forceKillAllSpawned();
+        server.close();
+        process.exit(0);
+      }, 2000);
+    }
     return;
   }
 
@@ -639,19 +688,42 @@ server.listen(PORT, '127.0.0.1', () => {
   serverLog(`harness v${SERVER_VERSION} started on port ${actualPort}`);
 });
 
-// Graceful shutdown — kill all spawned RPC agents before exiting
-const shutdown = (signal: string) => {
-  serverLog(`received ${signal}, shutting down`);
-  stopAllSpawned();
+// Graceful shutdown — persist running agent state before exiting so a
+// restarted server can reconnect. Only kill spawns on explicit /quit
+// without x-preserve-spawns; signal-based shutdown always preserves
+// spawned agents (the common case is a version-mismatch restart where
+// we want agents to survive).
+const shutdown = (signal: string, preserveSpawns = true) => {
+  serverLog(`received ${signal}, shutting down (preserve=${preserveSpawns})`);
+  if (preserveSpawns) {
+    persistRuntimes(startupDirs.base);
+  } else {
+    stopAllSpawned();
+  }
   server.close();
-  // Wait 2s for graceful exit, then force-kill any stragglers
+  const delay = preserveSpawns ? 500 : 2000;
   setTimeout(() => {
-    forceKillAllSpawned();
+    if (!preserveSpawns) forceKillAllSpawned();
     process.exit(0);
-  }, 2000);
+  }, delay);
 };
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+// Crash resilience: log errors instead of terminating the process.
+// Without these handlers, an unhandled rejection in Node 15+ kills the
+// server, orphaning all spawned agents and losing the runtimes map.
+process.on('uncaughtException', (err) => {
+  serverLog(`uncaughtException: ${err instanceof Error ? err.message : String(err)}`);
+  // Don't exit — keep serving. Uncaught exceptions can leave the event
+  // loop in an inconsistent state, but for a long-lived harness daemon
+  // it's better to log and continue than to kill all in-progress work.
+});
+
+process.on('unhandledRejection', (reason) => {
+  serverLog(`unhandledRejection: ${reason instanceof Error ? reason.message : String(reason)}`);
+  // Same policy: log and continue rather than crashing.
+});
 
 export { server, startupDirs };
