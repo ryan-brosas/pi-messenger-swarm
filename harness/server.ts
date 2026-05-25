@@ -21,6 +21,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { MessengerState, Dirs, AgentMailMessage, NameThemeConfig } from '../lib.js';
 import { loadConfig, type MessengerConfig } from '../config.js';
 import { executeAction, type RouterConfig } from '../router.js';
@@ -369,6 +370,18 @@ const deliverMessage = (_msg: AgentMailMessage): void => {
 };
 const updateStatus = (_ctx: unknown): void => {};
 
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
+const SERVER_VERSION: string = (() => {
+  try {
+    // __dirname is dist/harness/ — walk up to project root for package.json
+    const pkgPath = join(__dirname, '..', '..', 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    return pkg.version || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+})();
+
 const PORT = Number(process.env.PI_MESSENGER_PORT ?? 9877);
 const startedAt = Date.now();
 
@@ -430,6 +443,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
         ok: true,
         uptime: Math.floor((Date.now() - startedAt) / 1000),
         agents,
+        version: SERVER_VERSION,
         cwd: normalizeCwd(process.cwd()),
       })
     );
@@ -622,7 +636,7 @@ server.listen(PORT, '127.0.0.1', () => {
     message: `pi-messenger-swarm harness listening on http://127.0.0.1:${actualPort}`,
   });
   process.stdout.write(msg + '\n');
-  serverLog(`harness started on port ${actualPort}`);
+  serverLog(`harness v${SERVER_VERSION} started on port ${actualPort}`);
 });
 
 // Graceful shutdown — kill all spawned RPC agents before exiting

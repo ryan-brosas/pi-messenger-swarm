@@ -60,6 +60,15 @@ const HOST = '127.0.0.1';
 const BASE_URL = `http://${HOST}:${PORT}`;
 const LOG = process.env.PI_MESSENGER_LOG ?? '/tmp/pi-messenger-swarm.log';
 const SERVER_SCRIPT = path.resolve(__dirname, 'server.js');
+const CLI_VERSION: string = (() => {
+  try {
+    const pkgPath = path.resolve(__dirname, '..', '..', 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+    return pkg.version || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+})();
 
 function httpGet(url: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve) => {
@@ -491,6 +500,21 @@ Environment:
 
   // --- Natural subcommands ---
   if (!(await startServer())) process.exit(1);
+
+  // Warn if the running server doesn't match the CLI's version.
+  // A stale server silently breaks identity resolution and other fixes.
+  try {
+    const { body } = await httpGet(`${BASE_URL}/health`);
+    const health = JSON.parse(body);
+    if (health.version && health.version !== CLI_VERSION) {
+      process.stderr.write(
+        `⚠️  Server version mismatch: server=${health.version}, cli=${CLI_VERSION}. ` +
+          `Restart with 'pi-messenger-swarm --restart' to pick up fixes.\n`
+      );
+    }
+  } catch {
+    // Health check failed — not critical, continue
+  }
 
   const args = [...rawArgs]; // mutable copy
   const action = args.shift()!;
