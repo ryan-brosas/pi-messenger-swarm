@@ -21,13 +21,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as fs from 'node:fs';
-import type {
-  MessengerState,
-  Dirs,
-  AgentMailMessage,
-  NameThemeConfig,
-  AgentRegistration,
-} from '../lib.js';
+import type { MessengerState, Dirs, AgentMailMessage, NameThemeConfig } from '../lib.js';
 import { loadConfig, type MessengerConfig } from '../config.js';
 import { executeAction, type RouterConfig } from '../router.js';
 import {
