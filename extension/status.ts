@@ -2,6 +2,7 @@ import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 import type { Dirs, MessengerState } from '../lib.js';
 import { agentHasTask, computeStatus } from '../lib.js';
 import { displayChannelLabel } from '../channel.js';
+import { syncChannelStateFromDisk } from '../store/agents.js';
 import type { MessengerConfig } from '../config.js';
 import * as store from '../store.js';
 import * as taskStore from '../swarm/task-store.js';
@@ -76,6 +77,10 @@ export function createStatusController({
 
   function updateStatus(ctx: ExtensionContext): void {
     if (!ctx.hasUI || !state.registered) return;
+
+    // Sync channel state from disk so CLI changes (join, switch)
+    // are visible in the status bar without restarting the session.
+    syncChannelStateFromDisk(state, dirs);
 
     checkStuckAgents(ctx);
 

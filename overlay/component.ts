@@ -10,6 +10,7 @@ import * as path from 'node:path';
 import type { MessengerState, Dirs } from '../lib.js';
 import { displayChannelLabel, listChannels } from '../channel.js';
 import { getEffectiveSessionId } from '../store/shared.js';
+import { syncChannelStateFromDisk } from '../store/agents.js';
 import * as taskStore from '../swarm/task-store.js';
 import { type FeedEvent } from '../feed/index.js';
 import type { SwarmTask as Task } from '../swarm/types.js';
@@ -400,6 +401,10 @@ export class MessengerOverlay implements Component, Focusable {
   }
 
   render(_width: number): string[] {
+    // Sync channel state from disk so CLI changes (join, switch)
+    // are visible without restarting the session.
+    syncChannelStateFromDisk(this.state, this.dirs);
+
     // Auto-switch to newly discovered channels (e.g. created by subagents).
     // Runs on each render and switches at most once per new channel.
     this.autoSwitchToNewChannel();
