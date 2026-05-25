@@ -6,6 +6,7 @@ import { logFeedEvent } from '../../feed/index.js';
 import * as taskStore from '../task-store.js';
 import type { SwarmTaskEvidence } from '../types.js';
 import { summaryLine } from './_utils.js';
+import { listSpawned } from '../spawn.js';
 
 export function taskClaim(
   params: MessengerActionParams,
@@ -53,7 +54,25 @@ export function taskClaim(
 
   logFeedEvent(cwd, state.agentName, 'task.start', claimed.id, claimed.title, channelId);
 
-  return result(`🔄 Claimed ${claimed.id}: ${claimed.title}`, {
+  // Warn if the claiming agent also created the task and delegated it.
+  // This catches the common anti-pattern of a coordinator spawning subagents
+  // then claiming those tasks itself, leaving spawned agents idle.
+  let warning: string | undefined;
+  if (claimed.created_by === state.agentName && claimed.created_by !== undefined && cwd) {
+    // Check if there are live spawned agents for this session
+    const alive = listSpawned(cwd, sessionId);
+    if (alive.length > 0) {
+      warning =
+        `⚠️  You created and delegated this task but are now claiming it yourself. ` +
+        `${alive.length} spawned agent(s) are still running. Did you mean to let them claim it?`;
+    }
+  }
+
+  const text = warning
+    ? `🔄 Claimed ${claimed.id}: ${claimed.title}\n\n${warning}`
+    : `🔄 Claimed ${claimed.id}: ${claimed.title}`;
+
+  return result(text, {
     mode: 'task.claim',
     channel: normalizeChannelId(channelId),
     task: claimed,

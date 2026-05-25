@@ -21,7 +21,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as fs from 'node:fs';
-import type { MessengerState, Dirs, AgentMailMessage, NameThemeConfig } from '../lib.js';
+import type {
+  MessengerState,
+  Dirs,
+  AgentMailMessage,
+  NameThemeConfig,
+  AgentRegistration,
+} from '../lib.js';
 import { loadConfig, type MessengerConfig } from '../config.js';
 import { executeAction, type RouterConfig } from '../router.js';
 import {
@@ -173,6 +179,41 @@ function resolveAgentState(
       sessionChannel = match.sessionChannel || currentChannel;
       joinedChannels = match.joinedChannels || [];
       registered = true;
+    } else {
+      // No registration on disk yet (e.g., subagent sent task.claim before
+      // its join completed). Auto-register the agent so its actions aren't
+      // misattributed to another agent via the Strategy 3 fallback.
+      resolvedName = agentName;
+      sessionIdFromDisk = requestSessionId || '';
+      currentChannel = channelHint || '';
+      sessionChannel = channelHint || '';
+      joinedChannels = channelHint
+        ? [normalizeChannelId('memory'), normalizeChannelId(channelHint)]
+        : [normalizeChannelId('memory')];
+      registered = true;
+
+      // Write a registration file so concurrent requests find it
+      try {
+        ensureDirSync(dirs.registry);
+        const reg: AgentRegistration = {
+          name: resolvedName,
+          pid: callerPid ?? 0,
+          sessionId: sessionIdFromDisk,
+          cwd: resolvedCwd,
+          model: 'harness',
+          startedAt: new Date().toISOString(),
+          gitBranch,
+          isHuman: false,
+          session: { toolCalls: 0, tokens: 0, filesModified: [] },
+          activity: { lastActivityAt: new Date().toISOString() },
+          currentChannel,
+          sessionChannel,
+          joinedChannels,
+        };
+        fs.writeFileSync(join(dirs.registry, `${resolvedName}.json`), JSON.stringify(reg, null, 2));
+      } catch {
+        // Best effort — the join will create it properly shortly
+      }
     }
   }
 

@@ -310,8 +310,15 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
     // Write the session ID to disk so the harness server (and CLI)
     // can discover it. The harness runs as a separate process and
     // has no access to pi's SessionManager — this file bridges that gap.
+    //
+    // IMPORTANT: Skip for spawned subagents (PI_SWARM_SPAWNED=1).
+    // Subagents share the same project directory as the parent, so
+    // writing their session ID would overwrite the parent's file.
+    // The next parent CLI call would then read the child's session ID
+    // and trigger a spurious session-mismatch reset, creating orphan
+    // session channels.
     const sessionId = getContextSessionId(ctx);
-    if (sessionId) {
+    if (sessionId && !process.env.PI_SWARM_SPAWNED) {
       try {
         const sessionFilePath = join(dirs.base, 'session-id');
         fs.writeFileSync(sessionFilePath, sessionId, 'utf-8');
