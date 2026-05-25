@@ -129,7 +129,8 @@ export function getEffectiveSessionId(cwd: string, state: MessengerState): strin
 export function ensureStateChannels(
   state: MessengerState,
   dirs: Dirs,
-  ctx: ExtensionContext
+  ctx: ExtensionContext,
+  options?: { preserveNamedChannel?: boolean }
 ): void {
   ensureDefaultNamedChannels(dirs, state.agentName || undefined);
 
@@ -162,10 +163,26 @@ export function ensureStateChannels(
   state.sessionChannel = normalizeChannelId(sessionChannel);
 
   if (resetToSessionChannel) {
-    state.currentChannel = state.sessionChannel;
+    // When registering for the first time, preserve a valid named channel
+    // the agent may have joined via CLI so the overlay opens on the right
+    // channel. Skip this during session rebinding where we always want the
+    // session channel. We check the actual channel record type on disk
+    // rather than the ID pattern, because session channels use phrase IDs
+    // that do not start with 'session-'.
+    if (options?.preserveNamedChannel) {
+      const current = state.currentChannel?.trim();
+      const record = current ? getChannel(dirs, normalizeChannelId(current)) : null;
+      const isValidNamed = record?.type === 'named';
+      if (!isValidNamed) {
+        state.currentChannel = state.sessionChannel;
+      }
+    } else {
+      state.currentChannel = state.sessionChannel;
+    }
+
     state.joinedChannels = normalizeJoinedChannels(
       keepNamedChannels(dirs, state.joinedChannels),
-      state.sessionChannel,
+      state.currentChannel,
       state.sessionChannel
     );
     return;

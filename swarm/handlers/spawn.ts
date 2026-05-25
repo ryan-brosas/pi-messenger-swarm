@@ -175,6 +175,27 @@ function spawnCreate(
   sessionId: string,
   maxConcurrentSpawns?: number
 ) {
+  // Guardrail: if the user has ready tasks but forgot --task-id, warn them
+  // instead of letting an unbound agent float and accidentally claim/create
+  // tasks that collide with the coordinator's intent.
+  if (!params.taskId && !params.force) {
+    const ready = taskStore.getReadyTasks(cwd, sessionId);
+    if (ready.length > 0) {
+      const list = ready.map((t) => `  ${t.id}: ${t.title}`).join('\n');
+      return result(
+        `⚠️  You have ${ready.length} ready task${ready.length === 1 ? '' : 's'} waiting to be claimed.\n${list}\n\n` +
+          `Use --task-id to bind this spawn to a specific task:\n` +
+          `  pi-messenger-swarm spawn --task-id ${ready[0].id} --role "${params.role ?? 'Subagent'}" "..."\n\n` +
+          `This prevents the parent agent from accidentally owning work meant for the subagent.`,
+        {
+          mode: 'spawn',
+          error: 'missing_task_id',
+          readyTasks: ready.map((t) => ({ id: t.id, title: t.title })),
+        }
+      );
+    }
+  }
+
   // Enforce concurrency limit to prevent thundering-herd API failures.
   // When more subagents run than the provider supports concurrently,
   // excess agents hit rate limits and spin on retries — wasting tokens

@@ -23,6 +23,7 @@ import {
   getContextSessionId,
   getGitBranch,
   normalizeCwd,
+  normalizeJoinedChannels,
   updateChannelsInRegistration,
 } from './shared.js';
 
@@ -44,7 +45,32 @@ export function register(
     state.agentName = generateMemorableName(nameTheme);
   }
 
-  ensureStateChannels(state, dirs, ctx);
+  // If a previous process (e.g., harness CLI) registered this agent and
+  // joined a named channel, restore that state so the overlay opens on
+  // the right channel instead of resetting to the session channel.
+  const currentCtxSessionId = getContextSessionId(ctx);
+  let persistedSessionId: string | undefined;
+  const regPath = join(dirs.registry, `${state.agentName}.json`);
+  if (fs.existsSync(regPath)) {
+    try {
+      const existing: AgentRegistration = JSON.parse(fs.readFileSync(regPath, 'utf-8'));
+      persistedSessionId = existing.sessionId;
+      if (existing.sessionId === currentCtxSessionId) {
+        if (existing.currentChannel) {
+          state.currentChannel = normalizeChannelId(existing.currentChannel);
+        }
+        if (existing.joinedChannels) {
+          state.joinedChannels = normalizeJoinedChannels(existing.joinedChannels);
+        }
+      }
+    } catch {
+      // malformed, ignore
+    }
+  }
+
+  ensureStateChannels(state, dirs, ctx, {
+    preserveNamedChannel: persistedSessionId === currentCtxSessionId,
+  });
   state.contextSessionId = getContextSessionId(ctx);
 
   const effectivePid = state.callerPid ?? process.pid;

@@ -27,7 +27,7 @@
  *   pi-messenger-swarm release
  *   pi-messenger-swarm set-status "debugging auth"
  *   pi-messenger-swarm rename NewName
- *   pi-messenger-swarm spawn --role Researcher "Analyze the protocol" [--persona "..."] [--task-id task-1] [--agent-file path] [--objective "..."] [--context "..."] [--message-file <path>]
+ *   pi-messenger-swarm spawn --role Researcher "Analyze the protocol" --task-id task-1 [--persona "..."] [--agent-file path] [--objective "..."] [--context "..."] [--message-file <path>] [--force]
  *   pi-messenger-swarm spawn list
  *   pi-messenger-swarm spawn history
  *   pi-messenger-swarm spawn stop <id>
@@ -338,7 +338,7 @@ Usage:
   pi-messenger-swarm task reset <id> [--cascade]
   pi-messenger-swarm task archive-done
 
-  pi-messenger-swarm spawn --role Researcher "Analyze X" [--persona "..."] [--task-id <id>] [--name <name>] [--agent-file <path>] [--objective "..."] [--context "..."] [--message-file <path>]
+  pi-messenger-swarm spawn --role Researcher "Analyze X" --task-id <id> [--persona "..."] [--name <name>] [--agent-file <path>] [--objective "..."] [--context "..."] [--message-file <path>] [--force]
   pi-messenger-swarm spawn list
   pi-messenger-swarm spawn history
   pi-messenger-swarm spawn stop <id>
@@ -659,8 +659,8 @@ Environment:
         }
         await postAction(buildAction({ action: 'spawn.stop', id }));
       } else {
-        // spawn --role Role "mission text" [--persona "..."] [--task-id task-1] [--name name]
-        //      [--agent-file path] [--objective "..."] [--context "..."] [--message-file path]
+        // spawn --role Role "mission text" [--task-id task-1] [--persona "..."] [--name name]
+        //      [--agent-file path] [--objective "..."] [--context "..."] [--message-file path] [--force]
         const role = extractFlag(args, 'role') || extractFlag(args, 'title');
         const persona = extractFlag(args, 'persona');
         const taskId = extractFlag(args, 'task-id');
@@ -669,6 +669,7 @@ Environment:
         const objective = extractFlag(args, 'objective');
         const context = extractFlag(args, 'context');
         const messageFile = extractFlag(args, 'message-file');
+        const force = extractFlagBool(args, 'force');
 
         // --message-file takes priority: read mission text from a file to avoid
         // shell interpolation of backticks, ${...}, and parentheses in the prompt.
@@ -703,6 +704,7 @@ Environment:
             objective: objective || undefined,
             context: context || undefined,
             message: message || undefined,
+            force: force || undefined,
           })
         );
       }
