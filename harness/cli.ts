@@ -194,6 +194,11 @@ function agentHeaders(): Record<string, string> {
   // the CLI was invoked from.
   headers['x-caller-cwd'] = resolveProjectRoot(process.cwd());
 
+  // Forward PI_MESSENGER_CHANNEL as a request header so that spawned
+  // subagents (which inherit this env var from their parent) can join
+  // the parent's channel. The harness server only uses this hint when
+  // the agent is not yet registered — it does NOT override the channel
+  // for already-registered agents.
   if (process.env.PI_MESSENGER_CHANNEL)
     headers['x-messenger-channel'] = process.env.PI_MESSENGER_CHANNEL;
   return headers;
@@ -263,11 +268,20 @@ async function startServer(): Promise<boolean> {
   if (process.env.PI_MESSENGER_DIR) env.PI_MESSENGER_DIR = process.env.PI_MESSENGER_DIR;
   if (process.env.PI_MESSENGER_CWD) env.PI_MESSENGER_CWD = process.env.PI_MESSENGER_CWD;
 
+  // Build the server's environment: start from process.env but strip
+  // PI_MESSENGER_CHANNEL — it is a per-request hint for spawned subagents,
+  // not a property the harness server should ever see. If the CLI was
+  // invoked with PI_MESSENGER_CHANNEL in its env (e.g., by a parent agent's
+  // spawn), spreading process.env would leak it into the server.
+  const { PI_MESSENGER_CHANNEL: _strip, ...serverEnv } = process.env as Record<
+    string,
+    string | undefined
+  >;
   const child = spawnChild(cmd, args, {
     cwd: process.cwd(),
     stdio: ['ignore', 'ignore', 'ignore'],
     detached: true,
-    env: { ...process.env, ...env, PI_MESSENGER_PORT: String(PORT), PI_MESSENGER_LOG: LOG },
+    env: { ...serverEnv, ...env, PI_MESSENGER_PORT: String(PORT), PI_MESSENGER_LOG: LOG },
   });
   child.unref();
 

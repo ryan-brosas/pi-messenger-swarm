@@ -3,6 +3,8 @@ import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 import type { AgentMailMessage, Dirs, MessengerState, NameThemeConfig } from '../../lib.js';
 import { displaySpecPath, extractFolder, resolveSpecPath } from '../../lib.js';
 import { displayChannelLabel } from '../../channel.js';
+import { ensureStateChannels } from '../../store/shared.js';
+import { getContextSessionId } from '../../store/shared.js';
 import * as store from '../../store.js';
 import { logFeedEvent, pruneFeed } from '../../feed/index.js';
 import { result } from '../result.js';
@@ -89,6 +91,17 @@ export function executeJoin(
       joinedChannels: [...state.joinedChannels],
     });
   } else {
+    // resolveAgentState may have reset channels from a stale session.
+    // Re-ensure the session channel for the current session and update
+    // the registration on disk if anything changed.
+    const prevChannel = state.currentChannel;
+    const prevSession = state.sessionChannel;
+    ensureStateChannels(state, dirs, ctx);
+    state.contextSessionId = getContextSessionId(ctx);
+    if (state.currentChannel !== prevChannel || state.sessionChannel !== prevSession) {
+      if (state.registered) store.updateRegistration(state, dirs, ctx);
+      updateStatusFn(ctx);
+    }
     const agents = store.getActiveAgents(state, dirs);
     return result(
       `Already joined as ${state.agentName} in ${displayChannelLabel(state.currentChannel)}. ${agents.length} peer${agents.length === 1 ? '' : 's'} active.`,
@@ -98,6 +111,7 @@ export function executeJoin(
         name: state.agentName,
         peerCount: agents.length,
         channel: state.currentChannel,
+        joinedChannels: [...state.joinedChannels],
       }
     );
   }

@@ -143,7 +143,8 @@ function resolveAgentState(
   dirs: Dirs,
   callerPid?: number,
   agentName?: string,
-  channelHint?: string
+  channelHint?: string,
+  requestSessionId?: string
 ): {
   state: MessengerState;
   resolvedCwd: string;
@@ -221,19 +222,45 @@ function resolveAgentState(
     }
   }
 
-  // Override channel from request header if provided
+  // If the registration's sessionId doesn't match the request's session ID,
+  // the channel fields are from a stale session. Reset them so the agent
+  // gets a fresh session channel instead of inheriting one from a different
+  // session. Keep the agent name and PID — the process IS alive.
+  if (
+    registered &&
+    requestSessionId &&
+    sessionIdFromDisk &&
+    sessionIdFromDisk !== requestSessionId
+  ) {
+    currentChannel = '';
+    sessionChannel = '';
+    joinedChannels = ['memory'];
+    // Keep name + registered so we reuse the same identity
+  }
+
+  // Override channel from request header if provided.
+  //
+  // IMPORTANT: For registered agents, we do NOT override currentChannel
+  // from the header. That is only for spawned subagents joining fresh —
+  // the parent sets PI_MESSENGER_CHANNEL in the child's env so the child
+  // joins the parent's channel instead of getting a new session channel.
+  // For already-registered agents, the header is ignored; explicit
+  // channel switches go through the action body's `channel` field.
+  //
+  // For unregistered agents, the header adds the hinted channel to
+  // joinedChannels but does NOT override currentChannel if a session
+  // channel will be created later. The session channel is always the
+  // agent's "home" channel.
   if (channelHint) {
-    const record = ensureExistingOrCreateChannel(dirs, channelHint, {
-      create: true,
-      createdBy: resolvedName || undefined,
-    });
-    const chId = record?.id ?? normalizeChannelId(channelHint);
-    if (!currentChannel) {
-      currentChannel = chId;
-      sessionChannel = chId;
+    const chId = normalizeChannelId(channelHint);
+    if (!joinedChannels.includes(chId)) {
+      joinedChannels.push(chId);
     }
-    if (!joinedChannels.includes(normalizeChannelId(chId))) {
-      joinedChannels.push(normalizeChannelId(chId));
+    // Only set as currentChannel if the agent is already registered
+    // and doesn't have one. Fresh agents will get a session channel.
+    if (registered && !currentChannel) {
+      currentChannel = chId;
+      if (!sessionChannel) sessionChannel = chId;
     }
   }
 
@@ -439,7 +466,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       ? normalizeCwd(callerCwd)
       : normalizeCwd(process.env.PI_MESSENGER_CWD ?? process.cwd());
     // Pre-resolve state from the startup dirs to read the registration's cwd
-    const preState = resolveAgentState(startupDirs, callerPid, agentName, channelHint);
+    const preState = resolveAgentState(startupDirs, callerPid, agentName, channelHint, sessionId);
     // If the matched registration has a cwd, prefer it (it reflects the agent's project)
     if (preState.state.registered && preState.resolvedCwd) {
       projectCwd = preState.resolvedCwd;
@@ -449,7 +476,13 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     const routerConfig = routerConfigForCwd(projectCwd);
 
     // Build per-request state from disk
-    const { state, resolvedCwd } = resolveAgentState(dirs, callerPid, agentName, channelHint);
+    const { state, resolvedCwd } = resolveAgentState(
+      dirs,
+      callerPid,
+      agentName,
+      channelHint,
+      sessionId
+    );
     // Use session ID from header (written by extension to .pi/messenger/session-id)
     // if available, otherwise fall back to the state's contextSessionId (from disk).
     const effectiveSessionId = sessionId || state.contextSessionId || '';
