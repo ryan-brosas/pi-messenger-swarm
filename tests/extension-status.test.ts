@@ -75,7 +75,7 @@ describe('extension status controller', () => {
     expect(state.unreadCounts.has('Ghost')).toBe(false);
     expect(setStatus).toHaveBeenCalledWith(
       'messenger',
-      expect.stringContaining('msg: AgentA (1 peer) ●1 · editing index.ts ☑ 0/1 tasks')
+      expect.stringContaining('msg: AgentA #general (1 peer) ●1 · editing index.ts ☑ 0/1 tasks')
     );
     expect(maybeAutoOpenSwarmOverlay).toHaveBeenCalledWith(ctx);
   });

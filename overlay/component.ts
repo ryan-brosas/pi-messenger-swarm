@@ -19,6 +19,7 @@ import {
   renderLegend,
   renderDetailView,
   renderSwarmDetail,
+  renderChannelBar,
 } from './render-exports.js';
 import { createMessengerViewState, setNotification, type MessengerViewState } from './actions.js';
 import { handleOverlayInput } from './input.js';
@@ -465,6 +466,7 @@ export class MessengerOverlay implements Component, Focusable {
     const sessionId = this.getSessionIdForChannel();
     const tasks = taskStore.getTasks(this.cwd, sessionId);
     const spawned = listSpawnedHistory(this.cwd, sessionId);
+    const allChannels = this.getAllDiscoveredChannels();
 
     if (tasks.length === 0) {
       this.viewState.selectedTaskIndex = 0;
@@ -597,6 +599,12 @@ export class MessengerOverlay implements Component, Focusable {
         )
       )
     );
+
+    // Channel bar: only render when there are multiple channels
+    if (allChannels.length > 1) {
+      lines.push(row(renderChannelBar(this.theme, sectionW, allChannels, channelId)));
+    }
+
     lines.push(this.chromeCache.emptyLine);
 
     // Calculate legend first to determine dynamic chrome lines
@@ -609,7 +617,8 @@ export class MessengerOverlay implements Component, Focusable {
       selectedSwarmAgent,
       channelId
     );
-    const chromeLines = 5 + legendLines.length; // title + status + empty row + separator + bottom border + legend lines
+    // chromeLines: title + status + channel bar + empty row + separator + bottom border + legend lines
+    const chromeLines = 6 + legendLines.length + (allChannels.length > 1 ? 0 : -1);
     const contentHeight = Math.max(8, termRows - chromeLines);
 
     // Calculate feed height consistently (must match the calculation in list mode below)

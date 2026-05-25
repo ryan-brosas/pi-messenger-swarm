@@ -1,4 +1,4 @@
-import { truncateToWidth } from '@earendil-works/pi-tui';
+import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 import type { Theme } from '@earendil-works/pi-coding-agent';
 import { formatDuration } from '../lib.js';
 import * as taskStore from '../swarm/task-store.js';
@@ -6,6 +6,7 @@ import type { SwarmTask as Task, SpawnedAgent } from '../swarm/types.js';
 import { formatRoleLabel } from '../swarm/labels.js';
 import { getLiveWorkers, type LiveWorkerInfo } from '../swarm/live-progress.js';
 import type { MessengerViewState } from './actions.js';
+import { displayChannelLabel, normalizeChannelId } from '../channel.js';
 
 const STATUS_ICONS: Record<string, string> = {
   done: '✓',
@@ -49,14 +50,16 @@ export function renderStatusBar(
   const ready = taskStore.getReadyTasksForTasks(tasks);
 
   let line: string;
+  const channelLabel = displayChannelLabel(channelId);
+
   if (summary.total === 0) {
-    line = `No swarm tasks │ ⚙ ${liveCount} live`;
+    line = `${channelLabel} │ No tasks │ ⚙ ${liveCount} live`;
     if (undiscoveredChannels > 0) {
       line += ` │ 📡 ${undiscoveredChannels} other ch.`;
     }
     line = truncateToWidth(_theme.fg('dim', line), width);
   } else {
-    line = `☑ ${summary.done}/${summary.total} tasks`;
+    line = `${channelLabel} │ ☑ ${summary.done}/${summary.total} tasks`;
     line += ` │ ready ${ready.length}`;
     line += ` │ in progress ${summary.in_progress}`;
     line += ` │ blocked ${summary.blocked}`;
@@ -317,4 +320,45 @@ export function navigateSwarm(
     0,
     Math.min(swarmCount - 1, viewState.selectedSwarmIndex + direction)
   );
+}
+
+interface ChannelBarCache {
+  channels: string[];
+  currentChannel: string;
+  width: number;
+  line: string;
+}
+
+let channelBarCache: ChannelBarCache | null = null;
+
+export function renderChannelBar(
+  theme: Theme,
+  width: number,
+  channels: string[],
+  currentChannel: string
+): string {
+  if (
+    channelBarCache &&
+    channelBarCache.channels === channels &&
+    channelBarCache.currentChannel === currentChannel &&
+    channelBarCache.width === width
+  ) {
+    return channelBarCache.line;
+  }
+
+  const separator = theme.fg('dim', ' │ ');
+  const parts: string[] = [];
+
+  for (const ch of channels) {
+    const label = displayChannelLabel(ch);
+    if (ch === currentChannel) {
+      parts.push(theme.fg('accent', label));
+    } else {
+      parts.push(theme.fg('dim', label));
+    }
+  }
+
+  const line = truncateToWidth(parts.join(separator), width);
+  channelBarCache = { channels, currentChannel, width, line };
+  return line;
 }

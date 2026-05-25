@@ -214,6 +214,12 @@ async function startServer(): Promise<boolean> {
   const cmd = useTsx ? 'npx' : 'node';
   const args = useTsx ? ['tsx', serverScript] : [serverScript];
 
+  // PI_MESSENGER_CHANNEL must NOT be forwarded to the harness server.
+  // It is a per-request hint (sent via x-messenger-channel header) that
+  // tells a child process which channel to join. The harness is a
+  // long-lived shared daemon — baking this env var into its process
+  // environment makes every subsequent request resolve to that channel,
+  // regardless of which agent actually issued the request.
   const env: Record<string, string> = {};
   for (const key of ['PI_MESSENGER_DIR', 'PI_MESSENGER_GLOBAL', 'PI_MESSENGER_CWD'] as const) {
     if (process.env[key]) env[key] = process.env[key]!;

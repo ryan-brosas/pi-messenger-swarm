@@ -1,6 +1,7 @@
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 import type { Dirs, MessengerState } from '../lib.js';
 import { agentHasTask, computeStatus } from '../lib.js';
+import { displayChannelLabel } from '../channel.js';
 import type { MessengerConfig } from '../config.js';
 import * as store from '../store.js';
 import * as taskStore from '../swarm/task-store.js';
@@ -117,9 +118,11 @@ export function createStatusController({
     const workerCount = Math.max(runningSpawn, runningLive);
     const spawnStr = workerCount > 0 ? theme.fg('dim', ` 🔨${workerCount}`) : '';
 
+    const channelStr = theme.fg('dim', ` ${displayChannelLabel(state.currentChannel)}`);
+
     ctx.ui.setStatus(
       'messenger',
-      `msg: ${nameStr}${countStr}${unreadStr}${activityStr}${taskStr}${spawnStr}`
+      `msg: ${nameStr}${channelStr}${countStr}${unreadStr}${activityStr}${taskStr}${spawnStr}`
     );
 
     maybeAutoOpenSwarmOverlay?.(ctx);

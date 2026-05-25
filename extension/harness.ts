@@ -114,8 +114,15 @@ export function createHarnessServer(messengerDir: string): HarnessServerControll
     // the CLI forwards agent identity headers on every request.
     if (process.env.PI_SWARM_SPAWNED === '1') return;
 
+    const { PI_MESSENGER_CHANNEL, ...restEnv } = process.env as Record<string, string | undefined>;
+
+    // PI_MESSENGER_CHANNEL is a per-request hint (sent via x-messenger-channel
+    // header) that tells a child process which channel to join. The harness is
+    // a long-lived shared daemon — baking this env var into its process
+    // environment makes every subsequent request resolve to that channel,
+    // regardless of which agent actually issued the request.
     const env: Record<string, string> = {
-      ...(process.env as Record<string, string>),
+      ...(restEnv as Record<string, string>),
       // Always override so the harness server writes to the same
       // directory as the extension, even though the harness is spawned
       // with cwd: projectRoot (the pi-messenger repo).
@@ -126,6 +133,7 @@ export function createHarnessServer(messengerDir: string): HarnessServerControll
     if (process.env.PI_MESSENGER_GLOBAL) {
       env.PI_MESSENGER_GLOBAL = process.env.PI_MESSENGER_GLOBAL;
     }
+    delete env.PI_MESSENGER_CHANNEL;
 
     const { command, prefixArgs, cliPath, cwd } = resolveCli();
 
