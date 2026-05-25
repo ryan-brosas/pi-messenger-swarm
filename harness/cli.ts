@@ -162,8 +162,8 @@ function findCallerPid(): number | undefined {
  */
 function readSessionIdFromFile(): string | undefined {
   try {
-    const cwd = process.cwd();
-    const sessionFilePath = path.join(cwd, '.pi', 'messenger', 'session-id');
+    const projectRoot = resolveProjectRoot(process.cwd());
+    const sessionFilePath = path.join(projectRoot, '.pi', 'messenger', 'session-id');
     if (fs.existsSync(sessionFilePath)) {
       const id = fs.readFileSync(sessionFilePath, 'utf-8').trim();
       if (id) return id;
@@ -189,7 +189,10 @@ function agentHeaders(): Record<string, string> {
   const sessionId = readSessionIdFromFile();
   if (sessionId) headers['x-session-id'] = sessionId;
 
-  headers['x-caller-cwd'] = process.cwd();
+  // Send the project root (not the raw cwd) so the harness server
+  // resolves dirs consistently regardless of which subdirectory
+  // the CLI was invoked from.
+  headers['x-caller-cwd'] = resolveProjectRoot(process.cwd());
 
   if (process.env.PI_MESSENGER_CHANNEL)
     headers['x-messenger-channel'] = process.env.PI_MESSENGER_CHANNEL;
@@ -199,6 +202,27 @@ function agentHeaders(): Record<string, string> {
 async function isUp(): Promise<boolean> {
   const { status } = await httpGet(`${BASE_URL}/health`);
   return status === 200;
+}
+
+/**
+ * Resolve the project root directory by walking up from `start` to find the
+ * nearest ancestor containing `.git/` or `.pi/`. Falls back to `start` itself.
+ *
+ * This ensures the harness server always uses the project's root
+ * `.pi/messenger/` directory, regardless of which subdirectory
+ * (e.g., dist/) the CLI was invoked from.
+ */
+function resolveProjectRoot(start: string): string {
+  let dir = start;
+  for (let i = 0; i < 20; i++) {
+    if (fs.existsSync(path.join(dir, '.git')) || fs.existsSync(path.join(dir, '.pi'))) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return start;
 }
 
 async function startServer(): Promise<boolean> {
@@ -220,10 +244,24 @@ async function startServer(): Promise<boolean> {
   // long-lived shared daemon — baking this env var into its process
   // environment makes every subsequent request resolve to that channel,
   // regardless of which agent actually issued the request.
+  //
+  // Similarly, always explicitly set PI_MESSENGER_CWD and PI_MESSENGER_DIR
+  // to the project root (the nearest .git/ or .pi/ ancestor). Without this,
+  // if the CLI runs from a subdirectory like dist/, the harness server would
+  // use dist/.pi/messenger/ instead of the project's root .pi/messenger/.
+  const projectRoot = resolveProjectRoot(process.cwd());
+  const projectMessengerDir = path.join(projectRoot, '.pi', 'messenger');
+
   const env: Record<string, string> = {};
-  for (const key of ['PI_MESSENGER_DIR', 'PI_MESSENGER_GLOBAL', 'PI_MESSENGER_CWD'] as const) {
+  for (const key of ['PI_MESSENGER_GLOBAL'] as const) {
     if (process.env[key]) env[key] = process.env[key]!;
   }
+  // Always override: pin to project root, not the CLI's cwd
+  env.PI_MESSENGER_CWD = projectRoot;
+  env.PI_MESSENGER_DIR = projectMessengerDir;
+  // Explicit env vars take precedence if set (e.g., by the extension)
+  if (process.env.PI_MESSENGER_DIR) env.PI_MESSENGER_DIR = process.env.PI_MESSENGER_DIR;
+  if (process.env.PI_MESSENGER_CWD) env.PI_MESSENGER_CWD = process.env.PI_MESSENGER_CWD;
 
   const child = spawnChild(cmd, args, {
     cwd: process.cwd(),
