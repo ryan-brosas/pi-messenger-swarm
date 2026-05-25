@@ -176,16 +176,21 @@ function readSessionIdFromFile(): string | undefined {
 
 function agentHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
+
+  // Identity: prefer explicit agent name from env (set by parent on spawn)
+  // over fragile PID tree walking.
+  const agentName = process.env.PI_AGENT_NAME?.trim();
+  if (agentName) headers['x-agent-name'] = agentName;
+
+  // PID-based identity as fallback (for pi sessions that don't set PI_AGENT_NAME)
   const callerPid = findCallerPid();
   if (callerPid) headers['x-caller-pid'] = String(callerPid);
+
   const sessionId = readSessionIdFromFile();
   if (sessionId) headers['x-session-id'] = sessionId;
-  // Send the CLI's cwd so the server can resolve the correct project
-  // even when multiple projects share the same harness server.
+
   headers['x-caller-cwd'] = process.cwd();
-  // Inherited channel hint from subagent spawn (PI_MESSENGER_CHANNEL is set
-  // by spawn.ts when it launches a child pi process — this is the only env var
-  // still used for identity, and it's only needed on the very first subagent call).
+
   if (process.env.PI_MESSENGER_CHANNEL)
     headers['x-messenger-channel'] = process.env.PI_MESSENGER_CHANNEL;
   return headers;

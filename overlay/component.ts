@@ -151,14 +151,12 @@ export class MessengerOverlay implements Component, Focusable {
   /**
    * Get the list of discoverable channel IDs on disk, cached with a TTL.
    *
-   * Session-aware filtering:
-   * - #memory: always visible (cross-session by design)
+   * Simple discovery rules:
    * - Channels the main agent has joined: always visible
+   * - #memory: always visible (cross-session by design)
+   * - Named channels on disk: always visible (kafka-like — anyone can subscribe)
    * - Session channels from this session: visible
-   * - Named channels from this session: always visible
-   * - Named channels from other sessions: visible only if recently active
-   *   (stale channels from dead sessions are hidden to reduce noise)
-   * - Session channels from other sessions: hidden (never relevant)
+   * - Session channels from other sessions: visible only if recently active (< 30 min)
    */
   private getDiscoveredChannelIds(): string[] {
     const now = Date.now();
@@ -174,14 +172,12 @@ export class MessengerOverlay implements Component, Focusable {
         if (joinedSet.has(c.id)) return true;
         // #memory is cross-session by design
         if (c.id === 'memory') return true;
-        // Session channels from other sessions: never relevant
-        if (c.type === 'session' && c.sessionId !== mySessionId) return false;
+        // Named channels: always visible — kafka-like, anyone can subscribe
+        if (c.type === 'named') return true;
         // Session channels from this session: visible
-        if (c.type === 'session') return true;
-        // Named channels from this session: always visible
-        if (c.type === 'named' && c.sessionId === mySessionId) return true;
-        // Named channels from other sessions: only if recently active
-        if (c.type === 'named') {
+        if (c.type === 'session' && c.sessionId === mySessionId) return true;
+        // Session channels from other sessions: visible only if recently active
+        if (c.type === 'session') {
           try {
             const stat = fs.statSync(path.join(this.dirs.base, 'channels', `${c.id}.jsonl`));
             return now - stat.mtimeMs < staleThresholdMs;
@@ -229,36 +225,29 @@ export class MessengerOverlay implements Component, Focusable {
   }
 
   /**
-   * Auto-switch to a newly discovered channel belonging to the current session
-   * (e.g. one created by a subagent). Switches at most once per channel to avoid
-   * fighting with the user's manual channel selection.
-   *
-   * Only auto-switches to channels whose sessionId matches the current session.
-   * Other sessions' named channels are still visible in c/C cycling but won't
-   * trigger auto-switch.
+   * Auto-switch to a newly discovered channel (e.g. one created by a subagent).
+   * Switches at most once per channel to avoid fighting with the user's
+   * manual channel selection.
    */
   private autoSwitchToNewChannel(): void {
-    const mySessionId = this.state.contextSessionId ?? '';
     const joinedSet = new Set(this.state.joinedChannels);
 
-    // Only consider channels that belong to the current session
-    const myChannels = listChannels(this.dirs).filter((c) => {
-      if (joinedSet.has(c.id)) return false;
-      if (this.autoSwitchedToChannel.has(c.id)) return false;
-      // Only auto-switch to channels from our session
-      return c.sessionId === mySessionId;
-    });
+    // Find channels that exist on disk but aren't joined and haven't been
+    // auto-switched to yet. These are likely created by subagents.
+    const onDisk = this.getDiscoveredChannelIds();
+    const newChannel = onDisk.find(
+      (id) => !joinedSet.has(id) && !this.autoSwitchedToChannel.has(id)
+    );
 
-    const newChannel = myChannels[0];
     if (newChannel) {
-      this.autoSwitchedToChannel.add(newChannel.id);
-      const switched = this.callbacks.onSwitchChannel?.(newChannel.id);
+      this.autoSwitchedToChannel.add(newChannel);
+      const switched = this.callbacks.onSwitchChannel?.(newChannel);
       if (switched) {
         setNotification(
           this.viewState,
           this.tui,
           true,
-          `Auto-switched to ${displayChannelLabel(newChannel.id)}`
+          `Auto-switched to ${displayChannelLabel(newChannel)}`
         );
       }
     }

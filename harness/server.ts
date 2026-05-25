@@ -33,7 +33,7 @@ import {
   patchChannelSessionId,
 } from '../channel.js';
 import { ensureDirSync, getGitBranch, normalizeCwd } from '../store/shared.js';
-import { steerAgentByName, stopAllSpawned, forceKillAllSpawned } from '../swarm/spawn.js';
+import { stopAllSpawned, forceKillAllSpawned } from '../swarm/spawn.js';
 
 function getMessengerDirs(cwd?: string): Dirs {
   const effectiveCwd = cwd ?? process.env.PI_MESSENGER_CWD ?? process.cwd();
@@ -127,21 +127,22 @@ function readRegistrations(dirs: Dirs): RegistrationFile[] {
 /**
  * Build a MessengerState for the requesting agent.
  *
- * Identity resolution strategy (no environment variables needed):
- * 1. If x-caller-pid header is provided, find the registration whose
- *    `pid` field matches.  This is the common path when the CLI runs
- *    inside a pi bash session — the CLI discovers the parent pi process
- *    PID and sends it here.
- * 2. If no caller PID (human terminal, CI, etc.), fall back to:
+ * Identity resolution strategy (environment-based, no PID hacks):
+ * 1. If x-agent-name header is provided, find the registration whose
+ *    `name` field matches. This is the robust path — spawned subagents
+ *    carry PI_AGENT_NAME set by the parent, and the CLI forwards it.
+ * 2. If x-caller-pid header is provided, find the registration whose
+ *    `pid` field matches. This is the legacy path for pi sessions that
+ *    don't set PI_AGENT_NAME (human terminal, CI).
+ * 3. If no identity hint (or no registrations), fall back to:
  *    a. If only one registration on disk → use it (single-agent convenience)
  *    b. If multiple → pick the most recently active by file mtime
- * 3. If no registrations at all, return an unregistered state — the
- *    action handler will reject with "Not registered" if needed, or
- *    the `join` action will register a new agent.
+ * 4. If no registrations at all, return an unregistered state.
  */
 function resolveAgentState(
   dirs: Dirs,
   callerPid?: number,
+  agentName?: string,
   channelHint?: string
 ): {
   state: MessengerState;
@@ -161,8 +162,21 @@ function resolveAgentState(
 
   const regs = readRegistrations(dirs);
 
-  // Strategy 1: match by caller PID
-  if (callerPid) {
+  // Strategy 1: match by agent name (robust — env-var based)
+  if (agentName) {
+    const match = regs.find((r) => r.name === agentName);
+    if (match) {
+      resolvedName = match.name;
+      sessionIdFromDisk = match.sessionId || '';
+      currentChannel = match.currentChannel || '';
+      sessionChannel = match.sessionChannel || currentChannel;
+      joinedChannels = match.joinedChannels || [];
+      registered = true;
+    }
+  }
+
+  // Strategy 2: match by caller PID (legacy fallback)
+  if (!registered && callerPid) {
     const match = regs.find((r) => r.pid === callerPid);
     if (match) {
       resolvedName = match.name;
@@ -174,7 +188,7 @@ function resolveAgentState(
     }
   }
 
-  // Strategy 2: fallback — single agent or most recently active
+  // Strategy 3: fallback — single agent or most recently active
   if (!registered && regs.length > 0) {
     if (regs.length === 1) {
       const reg = regs[0];
@@ -185,7 +199,7 @@ function resolveAgentState(
       joinedChannels = reg.joinedChannels || [];
       registered = true;
     } else {
-      // Multiple agents, no caller PID — pick most recently active by mtime
+      // Multiple agents, no identity hint — pick most recently active by mtime
       let best: { name: string; mtime: number } | null = null;
       for (const f of fs.readdirSync(dirs.registry).filter((f) => f.endsWith('.json'))) {
         const stat = fs.statSync(join(dirs.registry, f));
@@ -300,13 +314,12 @@ function createHarnessContext(sessionId: string, cwd?: string): HarnessContext {
   };
 }
 
-// Deliver messages to running subagents via RPC steering.
-const deliverMessage = (msg: AgentMailMessage): void => {
-  if (!msg.to || msg.to.startsWith('#')) return;
-  const delivered = steerAgentByName(msg.to, `**Message from ${msg.from}**\n\n${msg.text}`);
-  if (!delivered) {
-    serverLog(`deliverMessage: agent ${msg.to} not reachable via RPC, message persists in feed`);
-  }
+// Pull-based message delivery: messages are written to the channel feed.
+// Agents read the feed themselves via `pi-messenger-swarm feed --limit 10`.
+// No RPC push — this is kafka-like, not pub/sub.
+const deliverMessage = (_msg: AgentMailMessage): void => {
+  // Messages are already persisted in the feed by the send handler.
+  // Agents discover them by reading the feed on their own schedule.
 };
 const updateStatus = (_ctx: unknown): void => {};
 
@@ -407,6 +420,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     // Resolve agent identity from request headers
     const callerPidStr = header(req, 'x-caller-pid');
     const callerPid = callerPidStr ? parseInt(callerPidStr, 10) : undefined;
+    const agentName = header(req, 'x-agent-name');
     const sessionId = header(req, 'x-session-id');
     const channelHint = header(req, 'x-messenger-channel');
     // The CLI sends its cwd so the server can resolve the correct project
@@ -414,7 +428,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     const callerCwd = header(req, 'x-caller-cwd');
 
     serverLog(
-      `action: ${action} caller_pid: ${callerPid || '(none)'} session: ${sessionId || '(none)'} channel: ${channelHint || '(auto)'} caller_cwd: ${callerCwd || '(none)'}`
+      `action: ${action} agent_name: ${agentName || '(none)'} caller_pid: ${callerPid || '(none)'} session: ${sessionId || '(none)'} channel: ${channelHint || '(auto)'} caller_cwd: ${callerCwd || '(none)'}`
     );
 
     // Determine the project cwd for this request.
@@ -425,7 +439,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       ? normalizeCwd(callerCwd)
       : normalizeCwd(process.env.PI_MESSENGER_CWD ?? process.cwd());
     // Pre-resolve state from the startup dirs to read the registration's cwd
-    const preState = resolveAgentState(startupDirs, callerPid, channelHint);
+    const preState = resolveAgentState(startupDirs, callerPid, agentName, channelHint);
     // If the matched registration has a cwd, prefer it (it reflects the agent's project)
     if (preState.state.registered && preState.resolvedCwd) {
       projectCwd = preState.resolvedCwd;
@@ -435,7 +449,7 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     const routerConfig = routerConfigForCwd(projectCwd);
 
     // Build per-request state from disk
-    const { state, resolvedCwd } = resolveAgentState(dirs, callerPid, channelHint);
+    const { state, resolvedCwd } = resolveAgentState(dirs, callerPid, agentName, channelHint);
     // Use session ID from header (written by extension to .pi/messenger/session-id)
     // if available, otherwise fall back to the state's contextSessionId (from disk).
     const effectiveSessionId = sessionId || state.contextSessionId || '';

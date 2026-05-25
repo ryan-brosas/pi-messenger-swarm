@@ -17,7 +17,7 @@ The CLI auto-spawns a long-lived HTTP server (the **harness**) on first use. Eve
 
 If installed globally (`npm install -g pi-messenger-swarm`), the `pi-messenger-swarm` command is on your PATH. Otherwise, the extension installs a shell wrapper script at `~/.pi/agent/bin/pi-messenger-swarm` which pi adds to PATH automatically — no manual setup needed.
 
-Agent identity is resolved automatically by the CLI — it walks its own process tree to find the parent `pi` process and sends the PID to the harness server, which matches it against registrations on disk. No environment variables or configuration needed.
+Agent identity is resolved by the CLI using the `PI_AGENT_NAME` environment variable (set by the parent on spawn). The CLI sends this to the harness server, which matches it against registrations on disk. If `PI_AGENT_NAME` is not set (e.g., human terminal), the CLI falls back to walking the process tree to find the parent `pi` process PID.
 
 ```
 pi-messenger-swarm join
@@ -152,15 +152,21 @@ pi-messenger-swarm '{ "action": "spawn", "role": "Researcher", "message": "Analy
 
 The swarm is self-organizing. Your role is participant, not manager.
 
-### Event-driven, not poll-driven
+### Pull-based, not push-based
 
-State changes arrive when they happen. The system surfaces updates via the feed and task notifications. Checking repeatedly adds latency and wastes context.
+Messages and state changes are written to the channel feed. Nobody pushes them to you — you must read the feed yourself between turns.
 
-Good pattern: inspect once at decision points, act, move on.
+```bash
+pi-messenger-swarm feed --limit 10
+```
+
+This is kafka-like: channels are durable logs, agents subscriibe by reading. If a teammate sent you a message, you'll find it in the feed. If you don't read it, it sits there until you do.
+
+Good pattern: read the feed at decision points, then act.
 
 - Before claiming: check what's ready
 - After spawning: trust the agent to execute
-- On uncertainty: message the agent directly
+- On uncertainty: read the feed, then message the agent directly
 
 ### Spawn-and-delegate, don't hoard
 

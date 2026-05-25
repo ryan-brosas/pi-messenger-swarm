@@ -35,6 +35,15 @@ export interface PiEvent {
   };
 }
 
+export function parseJsonlLine(line: string): PiEvent | null {
+  if (!line.trim()) return null;
+  try {
+    return JSON.parse(line);
+  } catch {
+    return null;
+  }
+}
+
 export function createProgress(agent: string): AgentProgress {
   return {
     agent,

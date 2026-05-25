@@ -110,11 +110,11 @@ describe('swarm spawn with agentFile', () => {
     );
 
     const args = spawnMock.mock.calls[0][1] as string[];
-    // In RPC mode, the user prompt is sent via rpc.prompt(), not as a CLI arg
+    // In JSON mode, the user prompt is passed as a positional CLI arg
     expect(args).toContain('--mode');
-    expect(args[args.indexOf('--mode') + 1]).toBe('rpc');
-    // No positional user prompt arg
-    expect(args).not.toContain('Do this specific task');
+    expect(args[args.indexOf('--mode') + 1]).toBe('json');
+    // The objective is passed as a positional arg
+    expect(args).toContain('Do this specific task');
 
     proc.emit('close', 0);
   });
