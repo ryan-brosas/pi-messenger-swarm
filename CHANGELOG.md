@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.25.18](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.17...v0.25.18) (2026-05-25)
+
+
+### Features
+
+* hide stale named channels (>30min) from overlay and CLI default view ([1572fc8](https://github.com/monotykamary/pi-messenger-swarm/commit/1572fc83a4792112ef9e28f91cf717fdbf768de5))
+
 ### [0.25.17](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.16...v0.25.17) (2026-05-25)
 
 
