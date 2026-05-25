@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.25.15](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.14...v0.25.15) (2026-05-25)
+
+
+### Features
+
+* **swarm:** kill idle subagents 10 min after agent_end ([19ba26a](https://github.com/monotykamary/pi-messenger-swarm/commit/19ba26a3e0fa6e0fa5da7da79c801e7fc463109a))
+* **swarm:** revert RPC to JSON, fix identity model and channel discovery ([50330d5](https://github.com/monotykamary/pi-messenger-swarm/commit/50330d5329fcb375751d935101be555782aacc70))
+
+
+### Bug Fixes
+
+* hide other sessions' channels from overlay by default ([0bcd9e2](https://github.com/monotykamary/pi-messenger-swarm/commit/0bcd9e2a611c9a416343d44ad06f850b7317d069))
+* isolate channels per pi session and prevent PI_MESSENGER_CHANNEL leaks ([83bb951](https://github.com/monotykamary/pi-messenger-swarm/commit/83bb951277c15669d01a0bfd82238592ebf2b581))
+* prevent PI_MESSENGER_CHANNEL from polluting harness server env ([2c2b925](https://github.com/monotykamary/pi-messenger-swarm/commit/2c2b925c7bbaad54d21b57b2c056d95100cf4648))
+* prevent subagent session-id overwrite and misattribution ([5754869](https://github.com/monotykamary/pi-messenger-swarm/commit/57548696fa56969fe0209796bb1245356910d03e))
+* resolve project root so harness always uses the same .pi/messenger/ ([31ddeb4](https://github.com/monotykamary/pi-messenger-swarm/commit/31ddeb4c3db95b22d4711bde17b93a0ab10c4ee7))
+* subagent channel inheritance and identity isolation ([e571d2a](https://github.com/monotykamary/pi-messenger-swarm/commit/e571d2ad738024cb7c634a2250301d1e1a7e4fe9))
+* **swarm:** prevent unbound spawns and preserve CLI-joined named channels in overlay ([87b0347](https://github.com/monotykamary/pi-messenger-swarm/commit/87b03477c23ed79f7c2238f22b03e80fa49b4d73))
+* sync channel from disk before opening overlay ([7a2d60e](https://github.com/monotykamary/pi-messenger-swarm/commit/7a2d60e428030ade30c157f59ee1df6c6f0935fa))
+* sync channel state from disk so CLI changes appear in overlay and status bar ([b590770](https://github.com/monotykamary/pi-messenger-swarm/commit/b5907708ba24bfa7d4532f7e47ad98a2f2ee19ad))
+
 ### [0.25.14](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.13...v0.25.14) (2026-05-25)
 
 ### [0.25.13](https://github.com/monotykamary/pi-messenger-swarm/compare/v0.25.12...v0.25.13) (2026-05-25)
