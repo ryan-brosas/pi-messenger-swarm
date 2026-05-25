@@ -180,45 +180,22 @@ function resolveAgentState(
       joinedChannels = match.joinedChannels || [];
       registered = true;
     } else {
-      // No registration on disk yet (e.g., subagent sent task.claim before
-      // its join completed). Auto-register the agent so its actions aren't
-      // misattributed to another agent via the Strategy 3 fallback.
+      // No registration on disk yet (e.g., subagent's join hasn't
+      // completed). Still honor the explicit name so the agent's
+      // identity is preserved — we only set the name, not registered=true,
+      // so that executeJoin takes the fresh-registration path which
+      // properly handles the channelHint / preexistingChannel flow.
+      // Non-join actions will get a not-registered error, which is
+      // correct — the subagent should join first.
       resolvedName = agentName;
-      sessionIdFromDisk = requestSessionId || '';
-      currentChannel = channelHint || '';
-      sessionChannel = channelHint || '';
-      joinedChannels = channelHint
-        ? [normalizeChannelId('memory'), normalizeChannelId(channelHint)]
-        : [normalizeChannelId('memory')];
-      registered = true;
-
-      // Write a registration file so concurrent requests find it
-      try {
-        ensureDirSync(dirs.registry);
-        const reg: AgentRegistration = {
-          name: resolvedName,
-          pid: callerPid ?? 0,
-          sessionId: sessionIdFromDisk,
-          cwd: resolvedCwd,
-          model: 'harness',
-          startedAt: new Date().toISOString(),
-          gitBranch,
-          isHuman: false,
-          session: { toolCalls: 0, tokens: 0, filesModified: [] },
-          activity: { lastActivityAt: new Date().toISOString() },
-          currentChannel,
-          sessionChannel,
-          joinedChannels,
-        };
-        fs.writeFileSync(join(dirs.registry, `${resolvedName}.json`), JSON.stringify(reg, null, 2));
-      } catch {
-        // Best effort — the join will create it properly shortly
-      }
+      registered = false;
     }
   }
 
   // Strategy 2: match by caller PID (legacy fallback)
-  if (!registered && callerPid) {
+  // Skip if an explicit agent name was provided but not found —
+  // we'd rather preserve the explicit name than match by PID.
+  if (!registered && !agentName && callerPid) {
     const match = regs.find((r) => r.pid === callerPid);
     if (match) {
       resolvedName = match.name;
@@ -231,7 +208,8 @@ function resolveAgentState(
   }
 
   // Strategy 3: fallback — single agent or most recently active
-  if (!registered && regs.length > 0) {
+  // Skip if an explicit agent name was provided but not found.
+  if (!registered && !agentName && regs.length > 0) {
     if (regs.length === 1) {
       const reg = regs[0];
       resolvedName = reg.name;
@@ -297,9 +275,15 @@ function resolveAgentState(
     if (!joinedChannels.includes(chId)) {
       joinedChannels.push(chId);
     }
-    // Only set as currentChannel if the agent is already registered
-    // and doesn't have one. Fresh agents will get a session channel.
-    if (registered && !currentChannel) {
+    // For unregistered agents with a channel hint (spawned subagents),
+    // set the hinted channel as currentChannel so executeJoin can
+    // restore it after register() overwrites it with a session channel.
+    // For already-registered agents, the header is ignored; explicit
+    // channel switches go through the action body's `channel` field.
+    if (!registered) {
+      currentChannel = chId;
+      if (!sessionChannel) sessionChannel = chId;
+    } else if (!currentChannel) {
       currentChannel = chId;
       if (!sessionChannel) sessionChannel = chId;
     }
