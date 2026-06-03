@@ -1,23 +1,21 @@
+<div align="center">
+
 <p>
   <img src="https://raw.githubusercontent.com/monotykamary/pi-messenger-swarm/main/banner.png" alt="pi-messenger-swarm" width="1100">
 </p>
 
 # Pi Messenger (Swarm Mode)
 
-Pi Messenger is a file-based multi-agent coordination extension for Pi.
+**File-based multi-agent coordination for [pi](https://github.com/earendil-works/pi-coding-agent)**
 
-- Agents in different terminals can join the same mesh
-- Each Pi session gets its own default session channel
-- Named channels like `#memory` remain durable shared spaces
-- Feed events, tasks, archives, and message routing are channel-scoped
-- Main agents can spawn dynamic subagents with custom roles/personas/objectives
-- No daemon required (all state is file-backed)
+_Join a mesh, share channels, spawn subagents — no daemon required._
 
-This swarm-first fork is inspired by and built upon the original project by Nico Bailon:
-https://github.com/nicobailon/pi-messenger
+</div>
 
 [![npm version](https://img.shields.io/npm/v/pi-messenger-swarm?style=for-the-badge)](https://www.npmjs.com/package/pi-messenger-swarm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+
+---
 
 ## Screenshots
 
