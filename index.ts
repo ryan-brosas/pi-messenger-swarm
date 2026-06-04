@@ -11,10 +11,10 @@
  * - The SKILL.md teaches models how to use the CLI
  */
 
-import { homedir } from 'node:os';
 import * as fs from 'node:fs';
 import { join } from 'node:path';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import type { OverlayHandle, TUI } from '@earendil-works/pi-tui';
 import { truncateToWidth } from '@earendil-works/pi-tui';
 import {
@@ -80,7 +80,7 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
     const baseDir =
       process.env.PI_MESSENGER_DIR ||
       (process.env.PI_MESSENGER_GLOBAL === '1'
-        ? join(homedir(), '.pi/agent/messenger')
+        ? join(getAgentDir(), 'messenger')
         : join(process.cwd(), '.pi/messenger'));
     return {
       base: baseDir,
@@ -302,7 +302,7 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
     startStatusHeartbeat();
     state.isHuman = ctx.hasUI;
     try {
-      fs.rmSync(join(homedir(), '.pi/agent/messenger/feed.jsonl'), { force: true });
+      fs.rmSync(join(getAgentDir(), 'messenger/feed.jsonl'), { force: true });
     } catch {}
 
     syncContextSession(ctx);

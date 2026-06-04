@@ -9,8 +9,8 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { getAgentDir } from '@earendil-works/pi-coding-agent';
 
 export interface MessengerConfig {
   autoRegister: boolean;
@@ -60,7 +60,7 @@ function readJsonFile(path: string): Record<string, unknown> | null {
 
 function expandHome(p: string): string {
   if (p.startsWith('~/')) {
-    return join(homedir(), p.slice(2));
+    return join(getAgentDir(), '..', p.slice(2));
   }
   return p;
 }
@@ -95,7 +95,7 @@ export function matchesAutoRegisterPath(cwd: string, paths: string[]): boolean {
 }
 
 export function saveAutoRegisterPaths(paths: string[]): void {
-  const configPath = join(homedir(), '.pi', 'agent', 'pi-messenger.json');
+  const configPath = join(getAgentDir(), 'pi-messenger.json');
   let existing: Record<string, unknown> = {};
 
   if (existsSync(configPath)) {
@@ -108,13 +108,13 @@ export function saveAutoRegisterPaths(paths: string[]): void {
 
   existing.autoRegisterPaths = paths;
 
-  const dir = join(homedir(), '.pi', 'agent');
+  const dir = getAgentDir();
   mkdirSync(dir, { recursive: true });
   writeFileSync(configPath, JSON.stringify(existing, null, 2));
 }
 
 export function getAutoRegisterPaths(): string[] {
-  const configPath = join(homedir(), '.pi', 'agent', 'pi-messenger.json');
+  const configPath = join(getAgentDir(), 'pi-messenger.json');
   if (!existsSync(configPath)) return [];
 
   try {
@@ -127,8 +127,8 @@ export function getAutoRegisterPaths(): string[] {
 
 export function loadConfig(cwd: string): MessengerConfig {
   const projectPath = join(cwd, '.pi', 'pi-messenger.json');
-  const extensionGlobalPath = join(homedir(), '.pi', 'agent', 'pi-messenger.json');
-  const mainSettingsPath = join(homedir(), '.pi', 'agent', 'settings.json');
+  const extensionGlobalPath = join(getAgentDir(), 'pi-messenger.json');
+  const mainSettingsPath = join(getAgentDir(), 'settings.json');
 
   // Load from main settings.json (lowest priority of the three sources)
   let settingsConfig: Partial<MessengerConfig> = {};

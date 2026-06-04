@@ -1,9 +1,10 @@
 import * as fs from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import { generateMemorableName } from '../lib.js';
 import { createProgress, parseJsonlLine, updateProgress } from './progress.js';
 import { removeLiveWorker, updateLiveWorker } from './live-progress.js';
@@ -272,9 +273,7 @@ function discoverSkills(cwd: string): string[] {
   const skillPaths: string[] = [];
 
   // Resolve the agent config directory (~/.pi/agent or PI_CODING_AGENT_DIR)
-  const agentDir = process.env.PI_CODING_AGENT_DIR
-    ? resolveTildePath(process.env.PI_CODING_AGENT_DIR)
-    : path.join(os.homedir(), '.pi', 'agent');
+  const agentDir = getAgentDir();
   const userSkillsDir = path.join(agentDir, 'skills');
   const projectSkillsDir = path.join(cwd, '.pi', 'skills');
 
@@ -296,13 +295,6 @@ function discoverSkills(cwd: string): string[] {
   return skillPaths;
 }
 
-function resolveTildePath(p: string): string {
-  if (p.startsWith('~/')) {
-    return path.join(os.homedir(), p.slice(2));
-  }
-  return p;
-}
-
 function createArgs(state: SpawnState, model?: string): string[] {
   const args = ['--mode', 'json', '--no-session'];
   if (model) {
@@ -321,7 +313,7 @@ function createArgs(state: SpawnState, model?: string): string[] {
   }
 
   if (state.systemPrompt.trim().length > 0) {
-    const promptTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-messenger-swarm-subagent-'));
+    const promptTmpDir = fs.mkdtempSync(path.join(tmpdir(), 'pi-messenger-swarm-subagent-'));
     const promptPath = path.join(
       promptTmpDir,
       `${state.name.replace(/[^\w.-]/g, '_')}-${state.id}.md`

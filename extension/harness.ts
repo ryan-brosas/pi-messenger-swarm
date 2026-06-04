@@ -2,7 +2,7 @@
  * Harness server lifecycle and CLI shell alias management.
  */
 
-import { homedir } from 'node:os';
+import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import * as fs from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -71,7 +71,7 @@ function getProjectRoot(): string {
  */
 export function installShellAlias(): void {
   try {
-    const agentBinDir = join(homedir(), '.pi', 'agent', 'bin');
+    const agentBinDir = join(getAgentDir(), 'bin');
     if (!fs.existsSync(agentBinDir)) {
       fs.mkdirSync(agentBinDir, { recursive: true });
     }

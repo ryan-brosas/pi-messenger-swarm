@@ -18,7 +18,7 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { homedir } from 'node:os';
+import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import { join } from 'node:path';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -49,7 +49,7 @@ function getMessengerDirs(cwd?: string): Dirs {
   const baseDir =
     process.env.PI_MESSENGER_DIR ||
     (process.env.PI_MESSENGER_GLOBAL === '1'
-      ? join(homedir(), '.pi/agent/messenger')
+      ? join(getAgentDir(), 'messenger')
       : join(normalizeCwd(effectiveCwd), '.pi/messenger'));
   return {
     base: baseDir,
