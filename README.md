@@ -10,6 +10,8 @@
 
 _Join a mesh, share channels, spawn subagents — no daemon required._
 
+> **Fork of [monotykamary/pi-messenger-swarm](https://github.com/monotykamary/pi-messenger-swarm)** with [br beads](https://github.com/Dicklesworthstone/beads_rust) task backend + [pi-vcc](https://github.com/monotykamary/pi-vcc) context compaction.
+
 </div>
 
 [![npm version](https://img.shields.io/npm/v/pi-messenger-swarm?style=for-the-badge)](https://www.npmjs.com/package/pi-messenger-swarm)
@@ -317,6 +319,44 @@ Legacy PRD planner/worker/reviewer actions are disabled in swarm mode:
 - `crew.*` (legacy alias namespace)
 
 Use `task.*`, `spawn.*`, and `swarm` instead.
+
+## br Beads Task Backend
+
+This fork adds an optional [br (beads_rust)](https://github.com/Dicklesworthstone/beads_rust) backend for task storage, replacing the legacy JSONL event store with SQLite-backed queries, dependency rods, content hashing, and `br ready` / `br stale`.
+
+```bash
+export BR_TASK_STORE=1   # enable br task store
+br init                 # initialize .beads in project
+```
+
+| Swarm Action    | br Command                                  |
+| --------------- | ------------------------------------------- |
+| `task create`   | `br create`                                 |
+| `task claim`    | `br update --status in_progress --assignee` |
+| `task done`     | `br close --reason`                         |
+| `task list`     | `br list --json`                            |
+| `task ready`    | `br ready --json`                           |
+| `task block`    | `br update --status blocked`                |
+| `task progress` | `br comments add`                           |
+
+Task IDs (`task-1`) are mapped to br issue IDs (`zxc-abc`) via `.pi/messenger/br-task-map.json` with labels `swarm:task-N` and `channel:xxx` for scoping.
+
+## pi-vcc Context Compaction
+
+[pi-vcc](https://github.com/monotykamary/pi-vcc) automatically compacts context at 90-95% of the model's context window — algorithmic (no LLM), deterministic, zero-cost, 2-64ms.
+
+- Config: `~/.pi/agent/pi-vcc-config.json`
+- Default: `reserveTokens=6400` (~95% of 128k)
+- Spawned agents inherit the same compaction settings
+- Compaction events appear in swarm feed: `compact.start` / `compact.done`
+
+After compaction, agents use `vcc_recall` to search compacted history:
+
+```bash
+vcc_recall --query "schema"                           # active lineage
+vcc_recall --query "decision" --scope all              # all branches
+vcc_recall --query "error" --scope compaction:latest   # latest compaction
+```
 
 ## License
 
