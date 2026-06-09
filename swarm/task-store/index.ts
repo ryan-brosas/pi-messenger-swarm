@@ -49,6 +49,12 @@ export {
   getStalledTasksBr,
   updateArtifactsBr,
   getArtifactsBr,
+  getArtifactDirPath,
+  getArtifactDirPathByBrId,
+  listArtifactFilesBr,
+  readArtifactFileBr,
+  writeArtifactFileBr,
+  appendSolveLedgerBr,
   type BrTaskArtifacts,
   type BrTaskCreateInput,
 } from './br-adapter.js';

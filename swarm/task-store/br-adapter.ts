@@ -54,6 +54,238 @@ export interface BrTaskCreateInput extends SwarmTaskCreateInput {
   artifacts?: BrTaskArtifacts;
 }
 
+// ── Artifact directory helpers ──────────────────────────────────────────
+
+/**
+ * Get the artifact directory path for a bead.
+ * Pattern: <cwd>/.beads/artifacts/<brId>/
+ */
+function getArtifactDir(cwd: string, brId: string): string {
+  return path.join(cwd, '.beads', 'artifacts', brId);
+}
+
+function ensureArtifactDir(cwd: string, brId: string): string {
+  const dir = getArtifactDir(cwd, brId);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** Write a file to the artifact directory */
+function writeArtifactFile(cwd: string, brId: string, filename: string, content: string): void {
+  const dir = ensureArtifactDir(cwd, brId);
+  fs.writeFileSync(path.join(dir, filename), content, 'utf-8');
+}
+
+/** Read a file from the artifact directory */
+function readArtifactFile(cwd: string, brId: string, filename: string): string | null {
+  const filePath = path.join(getArtifactDir(cwd, brId), filename);
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    return fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
+/** List all artifact files for a bead */
+function listArtifactFiles(cwd: string, brId: string): string[] {
+  const dir = getArtifactDir(cwd, brId);
+  if (!fs.existsSync(dir)) return [];
+  try {
+    return fs.readdirSync(dir).sort();
+  } catch {
+    return [];
+  }
+}
+
+/** Generate prd.md content from task + artifacts */
+function generatePrdMd(
+  brId: string,
+  title: string,
+  content: string | undefined,
+  artifacts: Partial<BrTaskArtifacts> | undefined,
+  createdBy: string | undefined
+): string {
+  const now = new Date().toISOString().split('T')[0];
+  const lines: string[] = [
+    `# ${title}`,
+    '',
+    `**Bead:** ${brId}`,
+    `**Created:** ${now}`,
+    `**Status:** Draft`,
+  ];
+
+  if (createdBy) lines.push(`**Author:** ${createdBy}`);
+
+  lines.push('', '## Bead Metadata', '', '```yaml');
+  if (artifacts?.priority !== undefined) lines.push(`priority: ${artifacts.priority}`);
+  if (artifacts?.estimate)
+    lines.push(`estimated_hours: ${Math.round((artifacts.estimate / 60) * 10) / 10}`);
+  if (artifacts?.due) lines.push(`due: "${artifacts.due}"`);
+  if (artifacts?.parent) lines.push(`parent: ${artifacts.parent}`);
+  lines.push('```');
+
+  if (content) {
+    lines.push('', '## Description', '', content);
+  }
+
+  if (artifacts?.design) {
+    lines.push('', '## Design', '', artifacts.design);
+  }
+
+  if (artifacts?.acceptanceCriteria) {
+    lines.push('', '## Acceptance Criteria', '', artifacts.acceptanceCriteria);
+  }
+
+  if (artifacts?.notes) {
+    lines.push('', '## Notes', '', artifacts.notes);
+  }
+
+  return lines.join('\n');
+}
+
+/** Generate prd.json — machine-readable task breakdown */
+function generatePrdJson(
+  brId: string,
+  title: string,
+  content: string | undefined,
+  artifacts: Partial<BrTaskArtifacts> | undefined
+): string {
+  const prd = {
+    beadId: brId,
+    prdName: title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, ''),
+    tasks: [],
+    metadata: {
+      priority: artifacts?.priority,
+      estimate: artifacts?.estimate,
+      due: artifacts?.due,
+      parent: artifacts?.parent,
+    },
+  };
+
+  if (content) (prd as any).description = content;
+  if (artifacts?.design) (prd as any).design = artifacts.design;
+  if (artifacts?.acceptanceCriteria) (prd as any).acceptanceCriteria = artifacts.acceptanceCriteria;
+  if (artifacts?.notes) (prd as any).notes = artifacts.notes;
+
+  return JSON.stringify(prd, null, 2);
+}
+
+/** Generate progress.txt */
+function generateProgressTxt(brId: string, title: string): string {
+  return [
+    `# Progress Log`,
+    '',
+    `Bead: ${brId}`,
+    `Title: ${title}`,
+    `Started: ${new Date().toISOString()}`,
+    '',
+    '---',
+    '',
+    '<!-- Task logs below - APPEND ONLY -->',
+    '',
+  ].join('\n');
+}
+
+/** Append to progress.txt */
+function appendProgress(cwd: string, brId: string, agent: string, message: string): void {
+  const dir = getArtifactDir(cwd, brId);
+  if (!fs.existsSync(dir)) return;
+
+  const progressPath = path.join(dir, 'progress.txt');
+  const entry = `[${new Date().toISOString()}] ${agent}: ${message}\n`;
+
+  if (fs.existsSync(progressPath)) {
+    fs.appendFileSync(progressPath, entry, 'utf-8');
+  } else {
+    const header = generateProgressTxt(brId, '');
+    fs.writeFileSync(progressPath, header + entry, 'utf-8');
+  }
+}
+
+/** Generate context-capsule.md for spawned agents */
+function generateContextCapsule(
+  brId: string,
+  title: string,
+  agentContext: Record<string, unknown> | undefined
+): string {
+  const lines: string[] = [
+    `# Context Capsule: ${brId}`,
+    '',
+    `**Bead:** ${brId}`,
+    `**Task:** ${title}`,
+    `**Generated:** ${new Date().toISOString()}`,
+    '',
+  ];
+
+  if (agentContext) {
+    lines.push('## Agent Instructions', '', '```json');
+    lines.push(JSON.stringify(agentContext, null, 2));
+    lines.push('```', '');
+
+    if (agentContext.role) lines.push(`**Role:** ${agentContext.role}`);
+    if (agentContext.objective) lines.push(`**Objective:** ${agentContext.objective}`);
+    if (agentContext.skills)
+      lines.push(
+        `**Skills:** ${Array.isArray(agentContext.skills) ? agentContext.skills.join(', ') : agentContext.skills}`
+      );
+  }
+
+  return lines.join('\n');
+}
+
+/** Generate completion-evidence.json */
+function generateCompletionEvidence(
+  brId: string,
+  agent: string,
+  summary: string,
+  evidence?: SwarmTaskEvidence
+): string {
+  return JSON.stringify(
+    {
+      version: 1,
+      beadId: brId,
+      source: 'swarm',
+      generatedAt: new Date().toISOString(),
+      completedBy: agent,
+      summary,
+      status: 'PASS',
+      gates: [
+        {
+          name: 'Task completed',
+          status: 'PASS',
+          command: `pi-messenger-swarm task done ${brId}`,
+        },
+      ],
+      evidence: evidence ?? {},
+    },
+    null,
+    2
+  );
+}
+
+/** Generate solve-ledger.md */
+function generateSolveLedger(brId: string, title: string): string {
+  return [
+    `# Solve Ledger: ${brId}`,
+    '',
+    `**Bead:** ${brId}`,
+    `**Title:** ${title}`,
+    `**Created:** ${new Date().toISOString()}`,
+    '',
+    '## Decisions',
+    '',
+    '| # | Decision | Rationale |',
+    '|---|----------|------------|',
+    '',
+    '<!-- Append decisions below -->',
+    '',
+  ].join('\n');
+}
+
 // ── br CLI helper ──────────────────────────────────────────────────────────
 
 interface BrResult {
@@ -431,6 +663,41 @@ export function createTaskBr(
       br(['update', issue.id, '--agent-context', ctxJson, '--json'], cwd);
     }
 
+    // ── Create artifact directory with files ──────────────────────────
+    ensureArtifactDir(cwd, issue.id);
+
+    // prd.md — full PRD document
+    writeArtifactFile(
+      cwd,
+      issue.id,
+      'prd.md',
+      generatePrdMd(issue.id, input.title, input.content, artifacts, input.createdBy)
+    );
+
+    // prd.json — machine-readable task breakdown
+    writeArtifactFile(
+      cwd,
+      issue.id,
+      'prd.json',
+      generatePrdJson(issue.id, input.title, input.content, artifacts)
+    );
+
+    // progress.txt — progress log
+    writeArtifactFile(cwd, issue.id, 'progress.txt', generateProgressTxt(issue.id, input.title));
+
+    // context-capsule.md — agent spawn instructions
+    if (artifacts?.agentContext) {
+      writeArtifactFile(
+        cwd,
+        issue.id,
+        'context-capsule.md',
+        generateContextCapsule(issue.id, input.title, artifacts.agentContext)
+      );
+    }
+
+    // solve-ledger.md — decision log
+    writeArtifactFile(cwd, issue.id, 'solve-ledger.md', generateSolveLedger(issue.id, input.title));
+
     // Re-fetch to get the full issue with all fields
     const updated = br(['show', issue.id, '--json'], cwd);
     if (updated.exitCode === 0) {
@@ -477,6 +744,9 @@ export function claimTaskBr(
   const result = br(['update', brId, '--claim', '--actor', agentName, '--json'], cwd);
   if (result.exitCode !== 0) return null;
 
+  // Append to artifact progress.txt
+  appendProgress(cwd, brId, agentName, 'Claimed task');
+
   return getTaskBr(cwd, _sessionId, swarmTaskId);
 }
 
@@ -511,6 +781,17 @@ export function completeTaskBr(
 
   // Close the issue
   br(['close', brId, '--json'], cwd);
+
+  // Write completion-evidence.json artifact
+  writeArtifactFile(
+    cwd,
+    brId,
+    'completion-evidence.json',
+    generateCompletionEvidence(brId, agentName, summary, _evidence)
+  );
+
+  // Append to progress.txt
+  appendProgress(cwd, brId, agentName, `Completed: ${summary}`);
 
   return getTaskBr(cwd, _sessionId, swarmTaskId);
 }
@@ -595,6 +876,9 @@ export function appendTaskProgressBr(
   if (!brId) return;
 
   br(['comments', 'add', brId, message, '--author', agentName, '--json'], cwd);
+
+  // Append to artifact progress.txt
+  appendProgress(cwd, brId, agentName, message);
 }
 
 // ── Artifact API ───────────────────────────────────────────────────────────
@@ -814,4 +1098,77 @@ export function getStalledTasksBr(
     if (!lastActivity) return false;
     return now - Date.parse(lastActivity) >= stallThresholdMs;
   });
+}
+
+// ── Artifact Directory API ──────────────────────────────────────────────────
+
+/** Get the artifact directory path for a swarm task */
+export function getArtifactDirPath(cwd: string, swarmTaskId: string): string | null {
+  const brId = swarmToBrId(cwd, swarmTaskId);
+  if (!brId) return null;
+  return getArtifactDir(cwd, brId);
+}
+
+/** Get the br ID's artifact directory path */
+export function getArtifactDirPathByBrId(cwd: string, brId: string): string {
+  return getArtifactDir(cwd, brId);
+}
+
+/** List all artifact files for a swarm task */
+export function listArtifactFilesBr(cwd: string, swarmTaskId: string): string[] {
+  const brId = swarmToBrId(cwd, swarmTaskId);
+  if (!brId) return [];
+  return listArtifactFiles(cwd, brId);
+}
+
+/** Read a specific artifact file for a swarm task */
+export function readArtifactFileBr(
+  cwd: string,
+  swarmTaskId: string,
+  filename: string
+): string | null {
+  const brId = swarmToBrId(cwd, swarmTaskId);
+  if (!brId) return null;
+  return readArtifactFile(cwd, brId, filename);
+}
+
+/** Write/update a specific artifact file for a swarm task */
+export function writeArtifactFileBr(
+  cwd: string,
+  swarmTaskId: string,
+  filename: string,
+  content: string
+): boolean {
+  const brId = swarmToBrId(cwd, swarmTaskId);
+  if (!brId) return false;
+  writeArtifactFile(cwd, brId, filename, content);
+  return true;
+}
+
+/** Append to the solve-ledger for a swarm task */
+export function appendSolveLedgerBr(
+  cwd: string,
+  swarmTaskId: string,
+  decision: string,
+  rationale: string
+): boolean {
+  const brId = swarmToBrId(cwd, swarmTaskId);
+  if (!brId) return false;
+
+  const dir = getArtifactDir(cwd, brId);
+  const ledgerPath = path.join(dir, 'solve-ledger.md');
+
+  if (!fs.existsSync(ledgerPath)) {
+    writeArtifactFile(cwd, brId, 'solve-ledger.md', generateSolveLedger(brId, ''));
+  }
+
+  const num =
+    fs
+      .readFileSync(ledgerPath, 'utf-8')
+      .split('\n')
+      .filter((l) => l.startsWith('|')).length - 1; // subtract header
+
+  const row = `| ${num} | ${decision} | ${rationale} |\n`;
+  fs.appendFileSync(ledgerPath, row, 'utf-8');
+  return true;
 }
