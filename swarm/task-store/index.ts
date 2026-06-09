@@ -90,10 +90,10 @@ export function getReadyTasksForTasks(cwd: string, sessionId: string, tasks: leg
     : legacy.jsonlQueries.getReadyTasksForTasks(tasks);
 }
 
-export function getStalledTasks(cwd: string, sessionId: string) {
+export function getStalledTasks(cwd: string, sessionId: string, stallThresholdMs?: number) {
   return isBrEnabled(cwd)
     ? legacy.brQueries.getStalledTasks(cwd, sessionId)
-    : legacy.jsonlQueries.getStalledTasks(cwd, sessionId);
+    : legacy.jsonlQueries.getStalledTasks(cwd, sessionId, stallThresholdMs);
 }
 
 export function getTaskSpec(cwd: string, sessionId: string, taskId: string): string | null {
@@ -226,10 +226,10 @@ export function appendTaskProgress(
     : legacy.jsonlCommands.appendTaskProgress(cwd, sessionId, taskId, agentName, message);
 }
 
-export function cleanupStaleTaskClaims(cwd: string, sessionId: string): void {
+export function cleanupStaleTaskClaims(cwd: string, sessionId: string): number {
   if (isBrEnabled(cwd)) {
     legacy.brCommands.cleanupStaleTaskClaims();
-  } else {
-    legacy.jsonlCleanup.cleanupStaleTaskClaims(cwd, sessionId);
+    return 0;
   }
+  return legacy.jsonlCleanup.cleanupStaleTaskClaims(cwd, sessionId);
 }
