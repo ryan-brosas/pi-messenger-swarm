@@ -405,6 +405,36 @@ export default function piMessengerExtension(pi: ExtensionAPI) {
     updateStatus(ctx);
   });
 
+  // Compaction awareness — log when pi-vcc compacts context
+  pi.on('session_before_compact', async (_event, ctx) => {
+    const cwd = ctx.cwd ?? process.cwd();
+    const sessionId = getEffectiveSessionId(cwd, state);
+    const channelId = state.currentChannel ?? state.sessionChannel ?? '';
+    logFeedEvent(
+      cwd,
+      state.agentName,
+      'compact.start',
+      'context',
+      'Compacting context (pi-vcc)',
+      channelId
+    );
+  });
+
+  pi.on('session_compact', async (event, ctx) => {
+    const cwd = ctx.cwd ?? process.cwd();
+    const sessionId = getEffectiveSessionId(cwd, state);
+    const channelId = state.currentChannel ?? state.sessionChannel ?? '';
+    const entry = event.compactionEntry;
+    const details = entry?.details as { compactor?: string; tokensBefore?: number } | undefined;
+    const compactor = details?.compactor ?? 'default';
+    const tokensBefore = entry?.tokensBefore ?? details?.tokensBefore;
+    const msg =
+      compactor === 'pi-vcc'
+        ? `pi-vcc compaction complete (${tokensBefore ? Math.round(tokensBefore / 1000) + 'k' : '?'} tokens before)`
+        : `Compaction complete`;
+    logFeedEvent(cwd, state.agentName, 'compact.done', 'context', msg, channelId);
+  });
+
   pi.on('session_shutdown', async () => {
     const cwd = process.cwd();
     stopAllSpawned(cwd); // In-process safety net for extension-spawned agents

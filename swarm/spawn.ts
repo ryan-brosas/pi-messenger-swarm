@@ -510,6 +510,8 @@ export function spawnSubagent(
     ...process.env,
     PI_SWARM_SPAWNED: '1',
     PI_AGENT_NAME: name,
+    // Ensure spawned agents use pi-vcc for compaction at 90-95% context
+    PI_VCC_CONFIG_PATH: process.env.PI_VCC_CONFIG_PATH || '',
     ...(inheritedChannel ? { PI_MESSENGER_CHANNEL: inheritedChannel } : {}),
   };
 
