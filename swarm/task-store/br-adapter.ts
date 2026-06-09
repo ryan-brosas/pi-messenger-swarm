@@ -672,7 +672,8 @@ export function getArtifactsBr(
 // ── Queries ────────────────────────────────────────────────────────────────
 
 export function listTasksBr(cwd: string, _sessionId: string): SwarmTask[] {
-  const result = br(['list', '--json'], cwd);
+  // Use --all to include closed (done) issues
+  const result = br(['list', '--all', '--json'], cwd);
   if (result.exitCode !== 0) return [];
 
   try {
