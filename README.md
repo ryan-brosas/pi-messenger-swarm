@@ -10,6 +10,8 @@
 
 _Join a mesh, share channels, spawn subagents — no daemon required._
 
+**⚠️ This is a fork of [monotykamary/pi-messenger-swarm](https://github.com/monotykamary/pi-messenger-swarm) with br beads + pi-vcc integration.**
+
 </div>
 
 [![npm version](https://img.shields.io/npm/v/pi-messenger-swarm?style=for-the-badge)](https://www.npmjs.com/package/pi-messenger-swarm)
@@ -287,10 +289,11 @@ pi-messenger-swarm send #channel "..."
 
 Override the default project-scoped behavior:
 
-| Variable                        | Effect                                           |
-| ------------------------------- | ------------------------------------------------ |
-| `PI_MESSENGER_DIR=/path/to/dir` | Use custom directory for all state               |
-| `PI_MESSENGER_GLOBAL=1`         | Use legacy global mode (`~/.pi/agent/messenger`) |
+| Variable                        | Effect                                               |
+| ------------------------------- | ---------------------------------------------------- |
+| `PI_MESSENGER_DIR=/path/to/dir` | Use custom directory for all state                   |
+| `PI_MESSENGER_GLOBAL=1`         | Use legacy global mode (`~/.pi/agent/messenger`)     |
+| `BR_TASK_STORE=1`               | Use br (beads_rust) as task backend instead of JSONL |
 
 ```bash
 # Custom location
@@ -298,6 +301,9 @@ PI_MESSENGER_DIR=/tmp/swarm-state pi
 
 # Legacy global mode (not recommended)
 PI_MESSENGER_GLOBAL=1 pi
+
+# Enable br beads task store
+BR_TASK_STORE=1 pi
 ```
 
 ### Global Mode (Legacy)
@@ -306,6 +312,89 @@ For backwards compatibility only - agents from ALL projects share state:
 
 - `~/.pi/agent/messenger/registry` - Agent registrations
 - `~/.pi/agent/messenger/inbox` - Cross-agent messaging
+
+## br Beads Integration (Phase 1)
+
+This fork adds an optional `br` (beads_rust) backend for task storage, replacing the legacy JSONL event store with SQLite-backed queries, dependency-aware ready/blocked, content hashing, and audit events.
+
+### Setup
+
+1. Install [br](https://github.com/Dicklesworthstone/beads_rust) and initialize in your project:
+
+   ```bash
+   # Install br (cargo install beads_rust)
+   br init
+   ```
+
+2. Enable the br task store:
+
+   ```bash
+   export BR_TASK_STORE=1
+   ```
+
+3. Start pi — all task operations now route through `br`:
+
+| Swarm Action    | br Command                                  |
+| --------------- | ------------------------------------------- |
+| `task create`   | `br create`                                 |
+| `task claim`    | `br update --status in_progress --assignee` |
+| `task done`     | `br close --reason`                         |
+| `task list`     | `br list --json`                            |
+| `task show`     | `br show --json`                            |
+| `task ready`    | `br ready --json`                           |
+| `task block`    | `br update --status blocked`                |
+| `task unblock`  | `br update --status open`                   |
+| `task reset`    | `br update --status open`                   |
+| `task progress` | `br comments add`                           |
+
+### What br gives you over JSONL
+
+| Feature               | JSONL (legacy) | br (beads_rust)          |
+| --------------------- | -------------- | ------------------------ |
+| Query performance     | O(n) replay    | O(log n) SQLite indexes  |
+| Causal dependencies   | Implicit       | Explicit `br dep` rods   |
+| Integrity             | None           | SHA-256 content hashing  |
+| Ready/blocked cache   | No concept     | Precomputed `br ready`   |
+| Stale claim detection | Manual         | `br stale` with evidence |
+| Audit trail           | Flat JSONL     | SQL-queryable events     |
+
+### ID mapping
+
+Swarm task IDs (`task-1`, `task-2`) are mapped bidirectionally to br issue IDs (`zxc-abc`) via `.pi/messenger/br-task-map.json`. Labels `swarm:task-N` and `channel:xxx` are set on each br issue for scoping.
+
+## pi-vcc Compaction Integration
+
+This fork integrates with [pi-vcc](https://github.com/monotykamary/pi-vcc) for automatic context compaction at 90-95% of the model's context window.
+
+### How it works
+
+1. **pi-vcc** is installed as a global pi extension and hooks into `session_before_compact` / `session_compact` events
+2. When a spawned agent's context reaches the configured threshold (default: 95% for 128k models, 94% for 200k models), pi-vcc triggers compaction automatically
+3. Compaction is **algorithmic** (no LLM call) — deterministic, zero-cost, 2-64ms latency
+4. Full history remains searchable via `vcc_recall` even after compaction
+5. Compaction events appear in the swarm feed as `compact.start` / `compact.done`
+
+### Configuration
+
+Thresholds are configured in `~/.pi/agent/pi-vcc-config.json`:
+
+```json
+{
+  "overrideDefaultCompaction": true,
+  "defaultThreshold": {
+    "reserveTokens": 6400,
+    "keepRecentTokens": 8000
+  },
+  "modelThresholds": {
+    "GLM-5.1-FP8": { "reserveTokens": 6400, "keepRecentTokens": 8000 },
+    "gpt-5.5": { "reserveTokens": 12800, "keepRecentTokens": 16000 }
+  }
+}
+```
+
+`reserveTokens` controls when compaction triggers: `contextTokens > contextWindow - reserveTokens`. Higher = compact earlier. For a 128k model, `reserveTokens=6400` triggers at ~95% (121.6k tokens used).
+
+Spawned agents inherit `PI_VCC_CONFIG_PATH` from the parent process so they use the same compaction settings.
 
 ## Legacy Orchestration Actions
 

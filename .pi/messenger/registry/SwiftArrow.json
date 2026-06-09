@@ -1,0 +1,21 @@
+{
+  "name": "SwiftArrow",
+  "pid": 250845,
+  "sessionId": "",
+  "cwd": "/root/.pi/agent/git/github.com/ryan-brosas/pi-messenger-swarm",
+  "model": "harness",
+  "startedAt": "2026-06-09T17:01:33.597Z",
+  "gitBranch": "feature/br-beads-phase1",
+  "isHuman": false,
+  "session": {
+    "toolCalls": 0,
+    "tokens": 0,
+    "filesModified": []
+  },
+  "activity": {
+    "lastActivityAt": "2026-06-09T17:01:33.597Z"
+  },
+  "currentChannel": "loud-jaguar",
+  "sessionChannel": "loud-jaguar",
+  "joinedChannels": ["memory", "loud-jaguar"]
+}
