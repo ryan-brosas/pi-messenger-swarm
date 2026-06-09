@@ -374,6 +374,49 @@ This fork integrates with [pi-vcc](https://github.com/monotykamary/pi-vcc) for a
 4. Full history remains searchable via `vcc_recall` even after compaction
 5. Compaction events appear in the swarm feed as `compact.start` / `compact.done`
 
+### New tool: `vcc_recall`
+
+After compaction, spawned agents (and the coordinator) can use the **`vcc_recall`** tool to search their compacted conversation history. This is critical for long-running swarm tasks where context is compacted multiple times — agents don't lose access to earlier decisions, code changes, or user instructions.
+
+```bash
+# Search the active lineage (default)
+vcc_recall --query "database schema"
+
+# Search ALL lineages (including off-branch compactions)
+vcc_recall --query "why did we choose X?" --scope all
+
+# Search within a specific compaction segment
+vcc_recall --query "error" --scope compaction:latest
+```
+
+| Scope               | What it searches                                |
+| ------------------- | ----------------------------------------------- |
+| `lineage` (default) | Active conversation branch                      |
+| `all`               | All branches, including off-lineage compactions |
+| `compaction:N`      | Specific compaction segment by number           |
+| `compaction:latest` | Most recent compaction segment                  |
+
+Agents can also expand specific entries for full untruncated content:
+
+```bash
+vcc_recall --query "pull request" --expand 3,7
+```
+
+### Swarm feed events
+
+Compaction events now appear in the swarm feed:
+
+| Event           | When                                                               |
+| --------------- | ------------------------------------------------------------------ |
+| `compact.start` | Context compaction begins                                          |
+| `compact.done`  | Context compaction complete (includes pi-vcc stats when available) |
+
+Feed entries show the compactor name and token stats:
+
+```
+compact.done  SwiftArrow  pi-vcc compaction complete (121k tokens before)
+```
+
 ### Configuration
 
 Thresholds are configured in `~/.pi/agent/pi-vcc-config.json`:
