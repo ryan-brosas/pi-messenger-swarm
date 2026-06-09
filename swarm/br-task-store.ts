@@ -177,15 +177,14 @@ export function createTask(
     input.content ? `--description "${input.content.replace(/"/g, '\\"')}"` : '',
     '--type task',
     `--priority 1`,
-    `--label "swarm:${swarmId}"`,
-    `--label "channel:${channelId}"`,
+    `--labels "swarm:${swarmId},channel:${channelId}"`,
     `--actor "${input.createdBy ?? 'swarm'}"`,
   ]
     .filter(Boolean)
     .join(' ');
 
   const output = br(cwd, args);
-  const match = output.match(/Created\s+(br-\w+)/);
+  const match = output.match(/Created\s+([a-z]+-[a-z0-9]+)/i);
   if (!match) throw new Error(`Failed to parse br create output: ${output}`);
   const brId = match[1];
 
@@ -339,7 +338,7 @@ export function archiveTask(cwd: string, _sessionId: string, taskId: string): Sw
   const brId = map[taskId];
   if (!brId) return null;
 
-  brSafe(cwd, `close ${brId} --reason "archived" --label "archived"`);
+  brSafe(cwd, `close ${brId} --reason "archived" --add-label "archived"`);
   return getTask(cwd, _sessionId, taskId);
 }
 
@@ -358,7 +357,7 @@ export function deleteTask(cwd: string, _sessionId: string, taskId: string): boo
   if (!brId) return false;
 
   // br doesn't have delete; we tombstone it
-  brSafe(cwd, `update ${brId} --status closed --label "deleted"`);
+  brSafe(cwd, `update ${brId} --status closed --add-label "deleted"`);
   return true;
 }
 
@@ -423,7 +422,8 @@ export function getTask(cwd: string, _sessionId: string, taskId: string): SwarmT
     const output = brSafe(cwd, `show ${taskId} --json`);
     if (!output) return null;
     try {
-      const issue = JSON.parse(output);
+      const parsed = JSON.parse(output);
+      const issue = Array.isArray(parsed) ? parsed[0] : parsed;
       return brIssueToTask(issue, map);
     } catch {
       return null;
@@ -434,7 +434,8 @@ export function getTask(cwd: string, _sessionId: string, taskId: string): SwarmT
   if (!output) return null;
 
   try {
-    const issue = JSON.parse(output);
+    const parsed = JSON.parse(output);
+    const issue = Array.isArray(parsed) ? parsed[0] : parsed;
     return brIssueToTask(issue, map);
   } catch {
     return null;
