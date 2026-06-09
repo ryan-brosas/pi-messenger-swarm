@@ -46,8 +46,8 @@ export function renderStatusBar(
     return statusBarCache.line;
   }
 
-  const summary = taskStore.getSummaryForTasks(tasks);
-  const ready = taskStore.getReadyTasksForTasks(tasks);
+  const summary = taskStore.getSummaryForTasks(cwd, sessionId, tasks);
+  const ready = taskStore.getReadyTasksForTasks(cwd, sessionId, tasks);
 
   let line: string;
   const channelLabel = displayChannelLabel(channelId);
