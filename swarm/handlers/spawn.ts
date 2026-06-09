@@ -201,7 +201,7 @@ function spawnCreate(
   // excess agents hit rate limits and spin on retries — wasting tokens
   // and making the whole swarm appear stuck.
   const running = getRunningSpawnCount(cwd);
-  const limit = maxConcurrentSpawns ?? 3;
+  const limit = maxConcurrentSpawns ?? 6;
   if (running >= limit) {
     return result(
       `Error: ${running} subagent${running === 1 ? '' : 's'} already running (limit: ${limit}). ` +

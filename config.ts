@@ -46,7 +46,7 @@ const DEFAULT_CONFIG: MessengerConfig = {
   autoStatus: true,
   autoOverlay: true,
   swarmEventsInFeed: true,
-  maxConcurrentSpawns: 3,
+  maxConcurrentSpawns: 6,
 };
 
 function readJsonFile(path: string): Record<string, unknown> | null {

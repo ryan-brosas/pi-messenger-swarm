@@ -168,33 +168,33 @@ describe('spawn concurrency limit', () => {
     expect(text).toContain('🚀 Spawned');
   });
 
-  it('uses default limit of 3 when maxConcurrentSpawns is not provided', () => {
+  it('uses default limit of 6 when maxConcurrentSpawns is not provided', () => {
     const cwd = tempCwd();
     const sessionId = 'concurrency-default';
 
-    // Spawn 3 agents to fill default limit
-    for (let i = 0; i < 3; i++) {
+    // Spawn 6 agents to fill default limit
+    for (let i = 0; i < 6; i++) {
       const proc = new FakeProcess();
       spawnMock.mockReturnValueOnce(proc as any);
       executeSpawn(null, { objective: `Agent ${i}` }, baseState, cwd, sessionId);
     }
 
-    // Fourth should be rejected
+    // Seventh should be rejected
     const result = executeSpawn(
       null,
-      { objective: 'Agent 4' },
+      { objective: 'Agent 7' },
       baseState,
       cwd,
       sessionId
-      // no maxConcurrentSpawns — uses default of 3
+      // no maxConcurrentSpawns — uses default of 6
     );
 
     expect(result).toBeDefined();
     const details = (result as any).details ?? {};
     expect(details.error).toBe('concurrency_limit');
-    expect(details.limit).toBe(3);
+    expect(details.limit).toBe(6);
     const text = (result as any).content?.[0]?.text ?? '';
-    expect(text).toContain('3 subagents already running');
+    expect(text).toContain('6 subagents already running');
   });
 
   it('respects a custom limit of 1', () => {
