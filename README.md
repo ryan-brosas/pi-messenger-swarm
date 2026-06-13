@@ -6,11 +6,11 @@
 
 # Pi Messenger (Swarm Mode)
 
-**File-based multi-agent coordination for [pi](https://github.com/earendil-works/pi-coding-agent)**
+**Channel-first multi-agent coordination for [Pi](https://github.com/earendil-works/pi-coding-agent)**
 
-_Join a mesh, share channels, spawn subagents — no daemon required._
+_Auto-started local harness, durable channels, spawnable agents, and Beads/`br` task orchestration._
 
-> **Fork of [monotykamary/pi-messenger-swarm](https://github.com/monotykamary/pi-messenger-swarm)** with [br beads](https://github.com/Dicklesworthstone/beads_rust) task backend + [pi-vcc](https://github.com/monotykamary/pi-vcc) context compaction.
+> This repo is a fork of [monotykamary/pi-messenger-swarm](https://github.com/monotykamary/pi-messenger-swarm). In this fork, **Beads/`br` is the preferred task backend**: if `.beads/` exists and `br` is available, swarm task commands route to Beads automatically.
 
 </div>
 
@@ -19,96 +19,220 @@ _Join a mesh, share channels, spawn subagents — no daemon required._
 
 ---
 
-## Screenshots
+## What this fork adds
 
-| Swarm Details                              | Swarm Messenger                                |
-| ------------------------------------------ | ---------------------------------------------- |
-| ![Swarm Details](assets/swarm_details.jpg) | ![Swarm Messenger](assets/swarm_messenger.jpg) |
-| Memory Channel                             | Session Channel                                |
-| ![Memory Channel](assets/memory.jpg)       | ![Session Channel](assets/session.jpg)         |
+- **Beads/`br` task backend with auto-detection**
+- **Channel-scoped task views** on top of Beads labels
+- **Artifact directories** under `.beads/artifacts/<bead-id>/`
+- **`spawn --model provider/model`**
+- **Per-provider concurrency limits**
+- **`team` command** for wave-based multi-agent runs
+- **Spawn preservation across harness restart**
+- **`pi-vcc`-friendly compaction/feed integration**
 
 ## Install
 
-From npm:
+### From npm
 
 ```bash
 pi install npm:pi-messenger-swarm
 ```
 
-From git (Pi package settings):
+### From this fork
 
 ```json
 {
-  "packages": ["https://github.com/monotykamary/pi-messenger-swarm@main"]
+  "packages": ["https://github.com/ryan-brosas/pi-messenger-swarm@main"]
 }
 ```
 
-> Tip: after release tags are published, pin to a version tag instead of `main` (for example `@vX.Y.Z`).
+> Note: the published npm release may lag behind this fork. Features like `team`, `spawn --model`, and newer Beads behavior may exist here before they are released.
 
-## Quick Start
+## Quick start
 
-Join the messenger and start collaborating in your session channel:
+Join the messenger in your current Pi session:
 
 ```bash
 pi-messenger-swarm join
-pi-messenger-swarm send #memory "Investigating auth timeout in refresh flow"
-pi-messenger-swarm task create --title "Investigate auth timeout" --content "Repro + fix"
-pi-messenger-swarm task claim task-1
-pi-messenger-swarm task progress task-1 "Found race in refresh flow"
-pi-messenger-swarm task done task-1 "Fixed refresh lock + tests"
+pi-messenger-swarm status
+pi-messenger-swarm feed --limit 20
 ```
 
-Spawn a specialized subagent:
+Post a durable note to a named channel:
 
 ```bash
-pi-messenger-swarm spawn --role "Packaging Gap Analyst" --persona "Skeptical market researcher" "Find productization gaps in idea aggregation tools"
+pi-messenger-swarm send #memory "Investigating auth timeout in refresh flow"
 ```
 
-## Channel Model
+Create and work a task:
 
-Pi Messenger is now **channel-first**.
+```bash
+pi-messenger-swarm task create --title "Investigate auth timeout" --content "Repro, isolate, and fix"
+pi-messenger-swarm task claim task-1
+pi-messenger-swarm task progress task-1 "Found race in refresh flow"
+pi-messenger-swarm task show task-1
+pi-messenger-swarm task done task-1 "Fixed refresh lock and verified behavior"
+```
+
+Spawn a specialist onto a task:
+
+```bash
+pi-messenger-swarm spawn \
+  --task-id task-1 \
+  --role Debugger \
+  --model openai-codex/gpt-5.5 \
+  "Trace the auth timeout and propose a fix"
+```
+
+Run a predefined multi-agent team:
+
+```bash
+pi-messenger-swarm team run \
+  --agent-file ~/.pi/teams/plan-implement-audit.yaml \
+  "Fix the auth timeout"
+```
+
+## Beads / `br` task backend
+
+This fork is **Beads-first**.
+
+If both of these are true:
+
+- `.beads/` exists in the project
+- `br` is installed and on `PATH`
+
+...then task commands automatically use the Beads backend.
+
+Initialize Beads in a project:
+
+```bash
+br init
+```
+
+No `BR_TASK_STORE=1` flag is required in this fork.
+
+### How swarm maps onto Beads
+
+| Swarm concept   | Beads / `br` mapping                            |
+| --------------- | ----------------------------------------------- |
+| `task create`   | `br create`                                     |
+| `task claim`    | `br update --status in_progress --assignee ...` |
+| `task done`     | `br close --reason ...`                         |
+| `task block`    | `br update --status blocked`                    |
+| `task progress` | `br comment add`                                |
+| dependencies    | `br dep ...`                                    |
+| current channel | label: `swarm:channel:<name>`                   |
+| swarm task id   | label: `swarm:task:task-N`                      |
+
+Important details:
+
+- The swarm CLI still exposes **swarm ids** like `task-1`.
+- Those ids are mapped to native Beads ids in `.pi/messenger/br-task-map.json`.
+- Channel scoping is implemented with Beads labels like `swarm:channel:memory`.
+- Artifact files live under `.beads/artifacts/<bead-id>/`.
+
+### Artifact files
+
+When using Beads, the adapter can create or use files like:
+
+- `prd.md`
+- `prd.json`
+- `progress.txt`
+- `context-capsule.md`
+- `completion-evidence.json`
+
+These live under:
+
+```text
+.beads/artifacts/<bead-id>/
+```
+
+### Fallback behavior
+
+If `.beads/` is missing or `br` is unavailable, swarm falls back to the legacy JSONL task store in:
+
+```text
+.pi/messenger/tasks/
+```
+
+## Channels
+
+Pi Messenger is **channel-first**.
 
 ### Session channels
 
-Each Pi session gets a dedicated default channel, generated as a human-friendly phrase such as:
-
-- `#quiet-river`
-- `#wild-viper`
-- `#ember-owl`
-
-The same Pi `sessionId` restores the same session channel when reopened.
+Each Pi session gets a default session channel, restored when the session is resumed.
 
 ### Named channels
 
-By default, a durable named channel is created:
+Named channels are durable and cross-session. Common example:
 
-- `#memory` — cross-session knowledge, notes, decisions, and async handoff
+- `#memory` — durable notes, handoffs, decisions
 
-You can create additional named channels as needed.
+Examples:
 
-You can also create additional named channels explicitly with `join`.
+```bash
+pi-messenger-swarm join --channel architecture --create
+pi-messenger-swarm send #architecture "Need API shape before refactor"
+pi-messenger-swarm feed --channel architecture --limit 20
+```
 
-### Durable channel posting
+### Messaging rules
 
-Channel messages are durable even when nobody is listening.
+`send` always requires an explicit target:
 
-Posting to a channel means:
+```bash
+pi-messenger-swarm send OtherAgent "Need your review"
+pi-messenger-swarm send #memory "Remember this decision"
+```
 
-1. append to that channel's feed
-2. try live inbox delivery to agents currently joined to that channel
+There is no implicit broadcast.
 
-That makes channels useful as async coordination logs for later agents to pick up.
+## Spawn and team workflows
 
-### Session switching and resume
+### Spawn a single agent
 
-If Pi switches or resumes sessions inside the same live messenger instance, messenger rebinds to the resumed Pi session:
+```bash
+pi-messenger-swarm spawn --role Researcher "Analyze the protocol"
+```
 
-- restores the correct session channel
-- drops stale old session-channel membership
-- restarts watchers on the correct inbox
-- keeps named channels like `#memory`
+Useful flags:
 
-## Core Actions
+- `--task-id <id>`
+- `--role <label>`
+- `--persona <text>`
+- `--agent-file <path>`
+- `--objective <text>`
+- `--context <text>`
+- `--message-file <path>`
+- `--model provider/model`
+- `--force`
+
+### Team command
+
+The `team` command runs a YAML-defined wave plan.
+
+```bash
+pi-messenger-swarm team list
+pi-messenger-swarm team show ~/.pi/teams/scan-fix-verify.yaml
+pi-messenger-swarm team run --agent-file ~/.pi/teams/scan-fix-verify.yaml "Fix the bug"
+```
+
+Current behavior:
+
+- creates tasks for all steps
+- applies dependencies
+- spawns wave 0 immediately
+- auto-advances later waves when dependencies complete
+- respects global and per-provider concurrency limits
+
+Default team definitions are loaded from:
+
+```text
+~/.pi/teams/
+```
+
+## Core commands
 
 ### Coordination
 
@@ -117,246 +241,147 @@ If Pi switches or resumes sessions inside the same live messenger instance, mess
 - `list`
 - `whois`
 - `feed`
-- `set_status`
 - `send`
 - `reserve`
 - `release`
+- `set-status`
 - `rename`
+- `channels`
 
-### Swarm Board
+### Task lifecycle
 
-- `swarm` — summary of tasks + spawned agents
+- `task list`
+- `task ready`
+- `task show <id>`
+- `task create --title ...`
+- `task claim <id>`
+- `task unclaim <id>`
+- `task progress <id> <message>`
+- `task done <id> <summary>`
+- `task block <id>`
+- `task unblock <id>`
+- `task reset <id> [--cascade]`
+- `task archive-done`
+- `task delete <id>`
 
-### Task Lifecycle
+### Spawn
 
-- `task.create`
-- `task.list`
-- `task.show`
-- `task.ready`
-- `task.claim` (alias: `task.start`)
-- `task.unclaim` (alias: `task.stop`)
-- `task.progress`
-- `task.done`
-- `task.block`
-- `task.unblock`
-- `task.reset` (`cascade: true` supported)
-- `task.delete`
-- `task.archive_done` (moves completed tasks to `.pi/messenger/archive/<channel>/...`)
+- `spawn ...`
+- `spawn list`
+- `spawn history`
+- `spawn stop <id>`
 
-Compatibility aliases:
+### Teams
 
-- `claim` → `task.claim`
-- `unclaim` → `task.unclaim`
-- `complete` → `task.done`
+- `team list`
+- `team show <file>`
+- `team run --agent-file <file> "mission"`
 
-### Subagent Management
+### Harness management
 
-- `spawn`
-- `spawn.list`
-- `spawn.stop`
+The CLI talks to a local harness server and auto-starts it when needed.
 
-## Messaging Semantics
+- `--status`
+- `--start`
+- `--stop`
+- `--restart`
+- `--logs`
 
-`send` now always requires an explicit `to:` target.
+## Configuration
 
-### Direct message an agent
+Config priority is:
 
-```bash
-pi-messenger-swarm send OtherAgent "Need your API shape before I commit"
-```
+1. project: `.pi/pi-messenger.json`
+2. user/global: `~/.pi/agent/pi-messenger.json`
+3. `messenger` key in `~/.pi/agent/settings.json`
+4. built-in defaults
 
-### Post durably to a channel
-
-```bash
-pi-messenger-swarm send #memory "Claimed task-4, touching src/auth/session.ts"
-pi-messenger-swarm send #memory "Nightly sync complete"
-```
-
-### Switch channels explicitly
-
-```bash
-pi-messenger-swarm join --channel memory
-pi-messenger-swarm join --channel architecture --create
-```
-
-### Read a channel feed
-
-```bash
-pi-messenger-swarm feed --limit 20
-pi-messenger-swarm feed --channel memory --limit 20
-```
-
-### Notes
-
-- `to: "#channel"` is the canonical way to post to a channel
-- `send` without `to` is invalid
-- the old `broadcast` action is removed
-- for channel posts, prefer `to: "#channel"` over `channel: "..."`
-
-## Overlay
-
-Run `/messenger` to open the swarm overlay.
-
-Overlay includes:
-
-- live agent presence
-- swarm task list/detail
-- live feed for the current channel
-- DM/current-channel post input
-- channel switching
-
-Message input behavior:
-
-- `@name <message>` sends a DM
-- plain text posts to the current channel
-
-Planning UI and worker +/- controls were removed in swarm mode.
-
-## Storage Layout
-
-By default, swarm state is **project-scoped** (isolated per project). All channel state uses a unified event-sourced JSONL format:
-
-```text
-.pi/messenger/
-├── channels/                    # Unified event-sourced channel files
-│   ├── memory.jsonl           # Line 1: metadata header, Line 2+: feed events
-│   └── quiet-river.jsonl
-├── tasks/                       # Per-session task storage
-│   ├── session-abc.jsonl      # Task event log (created, claimed, done, etc.)
-│   └── session-abc/           # Task specs directory
-│       ├── task-1.md
-│       └── task-1.progress.md
-├── agents/                      # Per-session spawned agent storage
-│   ├── session-abc.jsonl      # Agent event log (spawned, completed, failed, stopped)
-│   └── session-abc/           # Agent definition files
-│       └── AgentName-id.md
-├── registry/                    # Agent registrations (joined mesh agents)
-│   ├── AgentA.json
-│   └── AgentB.json
-```
-
-### Unified Channel Format (Event-Sourced)
-
-Each channel file at `channels/<channel>.jsonl` uses an append-only JSONL format:
-
-**Line 1** — Metadata header:
+Example:
 
 ```json
 {
-  "_meta": true,
-  "v": 1,
-  "id": "memory",
-  "type": "named",
-  "createdAt": "2026-04-04T22:00:00.000Z",
-  "description": "Cross-session knowledge and insights"
+  "autoRegister": true,
+  "maxConcurrentSpawns": 10,
+  "providerConcurrency": {
+    "makora": 6,
+    "lilac": 4,
+    "openai-codex": 4,
+    "xiaomi-token-plan-sgp": 4
+  }
 }
 ```
 
-**Line 2+** — Append-only feed events:
+### Provider concurrency
 
-```json
-{"ts":"2026-04-04T22:05:00.000Z","agent":"Alpha","type":"join"}
-{"ts":"2026-04-04T22:10:00.000Z","agent":"Alpha","type":"message","preview":"Investigating auth timeout"}
-{"ts":"2026-04-04T22:15:00.000Z","agent":"Alpha","type":"task.start","target":"task-1"}
+If a spawn or team step uses a model like:
+
+```text
+openai-codex/gpt-5.5
 ```
 
-This design provides:
+...the provider is parsed as `openai-codex`, and that provider's concurrency limit is enforced if configured.
 
-- **Atomic channel creation** — metadata and first event written together
-- **Append-only feeds** — events never modified, only added
-- **Natural event sourcing** — full history preserved in file order
-- **Efficient tail reads** — recent events at end of file
-- **Simple caching** — stat mtime + size for invalidation
+## Storage layout
 
-## Breaking Changes
+Messenger state is project-scoped by default.
 
-This design intentionally breaks older messaging assumptions.
+### Always under `.pi/messenger/`
 
-- `broadcast` action was removed
-- `send` without `to` was removed
-- feed history is now stored per channel at `.pi/messenger/channels/<channel>.jsonl` (unified format: metadata header + events)
-- tasks are now stored per session at `.pi/messenger/tasks/<session>.jsonl`
-- session channels are phrase-based instead of `session-*` timestamp-like ids
-
-Use these patterns instead:
-
-```bash
-pi-messenger-swarm send AgentName "..."
-pi-messenger-swarm send #channel "..."
+```text
+.pi/messenger/
+├── channels/      # channel feed JSONL
+├── agents/        # spawned agent state/history
+├── registry/      # live agent registrations
+└── br-task-map.json
 ```
 
-## Environment Variables
+### Tasks in Beads mode
 
-Override the default project-scoped behavior:
-
-| Variable                        | Effect                                           |
-| ------------------------------- | ------------------------------------------------ |
-| `PI_MESSENGER_DIR=/path/to/dir` | Use custom directory for all state               |
-| `PI_MESSENGER_GLOBAL=1`         | Use legacy global mode (`~/.pi/agent/messenger`) |
-
-```bash
-# Custom location
-PI_MESSENGER_DIR=/tmp/swarm-state pi
-
-# Legacy global mode (not recommended)
-PI_MESSENGER_GLOBAL=1 pi
+```text
+.beads/
+└── artifacts/
+    └── <bead-id>/
 ```
 
-### Global Mode (Legacy)
+Task metadata, status, dependencies, and comments are stored through `br`.
 
-For backwards compatibility only - agents from ALL projects share state:
+### Tasks in JSONL fallback mode
 
-- `~/.pi/agent/messenger/registry` - Agent registrations
-- `~/.pi/agent/messenger/inbox` - Cross-agent messaging
-
-## Legacy Orchestration Actions
-
-Legacy PRD planner/worker/reviewer actions are disabled in swarm mode:
-
-- `plan*`
-- `work*`
-- `review*`
-- `crew.*` (legacy alias namespace)
-
-Use `task.*`, `spawn.*`, and `swarm` instead.
-
-## br Beads Task Backend
-
-This fork adds an optional [br (beads_rust)](https://github.com/Dicklesworthstone/beads_rust) backend for task storage, replacing the legacy JSONL event store with SQLite-backed queries, dependency rods, content hashing, and `br ready` / `br stale`.
-
-```bash
-export BR_TASK_STORE=1   # enable br task store
-br init                 # initialize .beads in project
+```text
+.pi/messenger/tasks/
+├── <session>.jsonl
+└── <session>/
 ```
 
-| Swarm Action    | br Command                                  |
-| --------------- | ------------------------------------------- |
-| `task create`   | `br create`                                 |
-| `task claim`    | `br update --status in_progress --assignee` |
-| `task done`     | `br close --reason`                         |
-| `task list`     | `br list --json`                            |
-| `task ready`    | `br ready --json`                           |
-| `task block`    | `br update --status blocked`                |
-| `task progress` | `br comments add`                           |
+## Overlay
 
-Task IDs (`task-1`) are mapped to br issue IDs (`zxc-abc`) via `.pi/messenger/br-task-map.json` with labels `swarm:task-N` and `channel:xxx` for scoping.
+Run `/messenger` in Pi to open the swarm overlay.
 
-## pi-vcc Context Compaction
+The overlay includes:
 
-[pi-vcc](https://github.com/monotykamary/pi-vcc) automatically compacts context at 90-95% of the model's context window — algorithmic (no LLM), deterministic, zero-cost, 2-64ms.
+- current channel feed
+- agent presence
+- swarm task summary
+- task detail
+- DM/channel posting
 
-- Config: `~/.pi/agent/pi-vcc-config.json`
-- Default: `reserveTokens=6400` (~95% of 128k)
-- Spawned agents inherit the same compaction settings
-- Compaction events appear in swarm feed: `compact.start` / `compact.done`
+## `pi-vcc` compaction integration
 
-After compaction, agents use `vcc_recall` to search compacted history:
+This fork is commonly used with [`pi-vcc`](https://github.com/monotykamary/pi-vcc).
 
-```bash
-vcc_recall --query "schema"                           # active lineage
-vcc_recall --query "decision" --scope all              # all branches
-vcc_recall --query "error" --scope compaction:latest   # latest compaction
-```
+When compaction is configured in Pi, swarm can surface compaction events such as:
+
+- `compact.start`
+- `compact.done`
+
+Spawned agents can inherit the same compaction environment/config.
+
+## Legacy / compatibility notes
+
+- `send` without a target is invalid
+- `broadcast` is removed
+- legacy planner/worker/reviewer flows are not the primary model here
+- the preferred model is: **channels + tasks + spawn + teams**
 
 ## License
 

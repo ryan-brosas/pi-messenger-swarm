@@ -179,7 +179,7 @@ function findCallerPid(): number | undefined {
  */
 function readRegistrationName(): string | undefined {
   try {
-    const projectRoot = resolveProjectRoot(process.cwd());
+    const projectRoot = resolveEffectiveProjectRoot();
     const registryDir = path.join(projectRoot, '.pi', 'messenger', 'registry');
     if (!fs.existsSync(registryDir)) return undefined;
 
@@ -234,7 +234,7 @@ function readRegistrationName(): string | undefined {
  */
 function readSessionIdFromFile(): string | undefined {
   try {
-    const projectRoot = resolveProjectRoot(process.cwd());
+    const projectRoot = resolveEffectiveProjectRoot();
     const sessionFilePath = path.join(projectRoot, '.pi', 'messenger', 'session-id');
     if (fs.existsSync(sessionFilePath)) {
       const id = fs.readFileSync(sessionFilePath, 'utf-8').trim();
@@ -273,7 +273,7 @@ function agentHeaders(): Record<string, string> {
   // Send the project root (not the raw cwd) so the harness server
   // resolves dirs consistently regardless of which subdirectory
   // the CLI was invoked from.
-  headers['x-caller-cwd'] = resolveProjectRoot(process.cwd());
+  headers['x-caller-cwd'] = resolveEffectiveProjectRoot();
 
   // Forward PI_MESSENGER_CHANNEL as a request header so that spawned
   // subagents (which inherit this env var from their parent) can join
@@ -298,6 +298,10 @@ async function isUp(): Promise<boolean> {
  * `.pi/messenger/` directory, regardless of which subdirectory
  * (e.g., dist/) the CLI was invoked from.
  */
+function resolveEffectiveProjectRoot(): string {
+  return resolveProjectRoot(process.env.PI_MESSENGER_CWD ?? process.cwd());
+}
+
 function resolveProjectRoot(start: string): string {
   let dir = start;
   for (let i = 0; i < 20; i++) {
@@ -482,10 +486,14 @@ Usage:
   pi-messenger-swarm task reset <id> [--cascade]
   pi-messenger-swarm task archive-done
 
-  pi-messenger-swarm spawn --role Researcher "Analyze X" --task-id <id> [--persona "..."] [--name <name>] [--agent-file <path>] [--objective "..."] [--context "..."] [--message-file <path>] [--force]
+  pi-messenger-swarm spawn --role Researcher "Analyze X" --task-id <id> [--persona "..."] [--name <name>] [--agent-file <path>] [--objective "..."] [--context "..."] [--message-file <path>] [--model provider/model] [--force]
   pi-messenger-swarm spawn list
   pi-messenger-swarm spawn history
   pi-messenger-swarm spawn stop <id>
+
+  pi-messenger-swarm team list
+  pi-messenger-swarm team show <file>
+  pi-messenger-swarm team run --agent-file <file> "mission"
 
   pi-messenger-swarm --status    Check if harness server is running
   pi-messenger-swarm --start     Start the harness server
@@ -840,7 +848,7 @@ Environment:
         await postAction(buildAction({ action: 'spawn.stop', id }));
       } else {
         // spawn --role Role "mission text" [--task-id task-1] [--persona "..."] [--name name]
-        //      [--agent-file path] [--objective "..."] [--context "..."] [--message-file path] [--force]
+        //      [--agent-file path] [--objective "..."] [--context "..."] [--message-file path] [--model provider/model] [--force]
         const role = extractFlag(args, 'role') || extractFlag(args, 'title');
         const persona = extractFlag(args, 'persona');
         const taskId = extractFlag(args, 'task-id');
@@ -849,6 +857,7 @@ Environment:
         const objective = extractFlag(args, 'objective');
         const context = extractFlag(args, 'context');
         const messageFile = extractFlag(args, 'message-file');
+        const model = extractFlag(args, 'model');
         const force = extractFlagBool(args, 'force');
 
         // --message-file takes priority: read mission text from a file to avoid
@@ -884,9 +893,46 @@ Environment:
             objective: objective || undefined,
             context: context || undefined,
             message: message || undefined,
+            model: model || undefined,
             force: force || undefined,
           })
         );
+      }
+      break;
+    }
+
+    // ---- Team ----
+    case 'team': {
+      const sub = args[0];
+      if (sub === 'list') {
+        await postAction(buildAction({ action: 'team.list' }));
+      } else if (sub === 'show') {
+        const file = args[1];
+        if (!file) {
+          process.stderr.write('Error: team show requires a file path.\n');
+          process.exit(1);
+        }
+        await postAction(buildAction({ action: 'team.show', agentFile: file }));
+      } else if (sub === 'run') {
+        // team run --agent-file <path> "mission"
+        const agentFile = extractFlag(args, 'agent-file');
+        const message = args.filter((a) => !a.startsWith('--')).join(' ');
+        if (!agentFile) {
+          process.stderr.write(
+            'Error: team run requires --agent-file <path> pointing to a team definition.\n'
+          );
+          process.exit(1);
+        }
+        await postAction(
+          buildAction({
+            action: 'team.run',
+            agentFile,
+            message: message || undefined,
+          })
+        );
+      } else {
+        process.stderr.write(`Unknown team subcommand: ${sub}. Use list, show, or run.\n`);
+        process.exit(1);
       }
       break;
     }

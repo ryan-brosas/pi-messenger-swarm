@@ -48,6 +48,7 @@ export interface SwarmSummary {
 export interface SpawnRequest {
   role?: string;
   persona?: string;
+  model?: string; // provider/model override (e.g. "makora/zai-org/GLM-5.1-FP8")
   objective?: string;
   message?: string; // Alias for objective
   context?: string;

@@ -385,7 +385,8 @@ interface BrIssue {
 interface BrComment {
   id: string;
   author: string;
-  body: string;
+  body?: string;
+  text?: string;
   created_at: string;
 }
 
@@ -530,8 +531,8 @@ function getBrDependencies(cwd: string, brId: string): string[] {
   try {
     const deps = JSON.parse(result.stdout);
     if (Array.isArray(deps)) {
-      return deps.map((d: { id?: string }) => {
-        const depBrId = d.id ?? String(d);
+      return deps.map((d: { id?: string; depends_on_id?: string } | string) => {
+        const depBrId = typeof d === 'string' ? d : (d.id ?? d.depends_on_id ?? String(d));
         return brToSwarmId(cwd, depBrId) ?? depBrId;
       });
     }
@@ -554,7 +555,7 @@ function getBrProgressComments(
     return comments.map((c) => ({
       timestamp: c.created_at,
       agent: c.author,
-      message: c.body,
+      message: c.text ?? c.body ?? '',
     }));
   } catch {
     return [];
@@ -777,7 +778,7 @@ export function completeTaskBr(
   if (!brId) return null;
 
   // Add summary as comment
-  br(['comments', 'add', brId, summary, '--actor', agentName, '--json'], cwd);
+  br(['comments', 'add', brId, summary, '--author', agentName, '--json'], cwd);
 
   // Close the issue
   br(['close', brId, '--json'], cwd);
@@ -955,7 +956,7 @@ export function getArtifactsBr(
 
 // ── Queries ────────────────────────────────────────────────────────────────
 
-export function listTasksBr(cwd: string, _sessionId: string): SwarmTask[] {
+export function listTasksBr(cwd: string, _sessionId: string, channelId?: string): SwarmTask[] {
   // Use --all to include closed (done) issues
   const result = br(['list', '--all', '--json'], cwd);
   if (result.exitCode !== 0) return [];
@@ -968,7 +969,8 @@ export function listTasksBr(cwd: string, _sessionId: string): SwarmTask[] {
     return issues
       .filter((issue) => {
         const labels = issue.labels ?? [];
-        return labels.some((l) => l.startsWith('swarm:'));
+        if (!labels.some((l) => l.startsWith('swarm:task:'))) return false;
+        return channelId ? extractChannel(labels) === channelId : true;
       })
       .map((issue) => {
         const task = brIssueToSwarmTask(cwd, issue);
@@ -1011,8 +1013,8 @@ export function taskExistsBr(cwd: string, sessionId: string, swarmTaskId: string
   return getTaskBr(cwd, sessionId, swarmTaskId) !== null;
 }
 
-export function getSummaryBr(cwd: string, sessionId: string): SwarmSummary {
-  const tasks = listTasksBr(cwd, sessionId);
+export function getSummaryBr(cwd: string, sessionId: string, channelId?: string): SwarmSummary {
+  const tasks = listTasksBr(cwd, sessionId, channelId);
   return {
     total: tasks.length,
     todo: tasks.filter((t) => t.status === 'todo').length,
@@ -1022,8 +1024,8 @@ export function getSummaryBr(cwd: string, sessionId: string): SwarmSummary {
   };
 }
 
-export function getReadyTasksBr(cwd: string, sessionId: string): SwarmTask[] {
-  const tasks = listTasksBr(cwd, sessionId);
+export function getReadyTasksBr(cwd: string, sessionId: string, channelId?: string): SwarmTask[] {
+  const tasks = listTasksBr(cwd, sessionId, channelId);
   const doneIds = new Set(tasks.filter((t) => t.status === 'done').map((t) => t.id));
   return tasks.filter((t) => t.status === 'todo' && t.depends_on.every((d) => doneIds.has(d)));
 }
@@ -1068,7 +1070,9 @@ export function getTaskProgressBr(
     const comments: BrComment[] = JSON.parse(result.stdout);
     if (comments.length === 0) return null;
     return comments
-      .map((c) => `[${new Date(c.created_at).toLocaleString()}] ${c.author}: ${c.body}`)
+      .map(
+        (c) => `[${new Date(c.created_at).toLocaleString()}] ${c.author}: ${c.text ?? c.body ?? ''}`
+      )
       .join('\n');
   } catch {
     return null;
@@ -1086,9 +1090,10 @@ export function archiveDoneTasksBr(cwd: string, sessionId: string): number {
 export function getStalledTasksBr(
   cwd: string,
   sessionId: string,
-  stallThresholdMs: number = 10 * 60 * 1000
+  stallThresholdMs: number = 10 * 60 * 1000,
+  channelId?: string
 ): SwarmTask[] {
-  const tasks = listTasksBr(cwd, sessionId);
+  const tasks = listTasksBr(cwd, sessionId, channelId);
   const now = Date.now();
   return tasks.filter((task) => {
     if (task.status !== 'in_progress') return false;

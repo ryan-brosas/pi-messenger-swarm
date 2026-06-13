@@ -11,11 +11,13 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../../config.js';
 import type { Dirs } from '../../lib.js';
 
 const roots = new Set<string>();
+const agentRoots = new Set<string>();
+const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
 
 function createProject(name: string, config?: Record<string, unknown>): string {
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), `pi-messenger-restart-test-${name}-`));
@@ -37,6 +39,16 @@ function createMessengerDirs(cwd: string): Dirs {
   return { base, registry };
 }
 
+function createAgentRoot(): string {
+  const agentRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-messenger-agent-test-'));
+  agentRoots.add(agentRoot);
+  return agentRoot;
+}
+
+beforeEach(() => {
+  process.env.PI_CODING_AGENT_DIR = createAgentRoot();
+});
+
 afterEach(() => {
   for (const root of roots) {
     try {
@@ -44,6 +56,19 @@ afterEach(() => {
     } catch {}
   }
   roots.clear();
+
+  for (const root of agentRoots) {
+    try {
+      fs.rmSync(root, { recursive: true, force: true });
+    } catch {}
+  }
+  agentRoots.clear();
+
+  if (originalAgentDir === undefined) {
+    delete process.env.PI_CODING_AGENT_DIR;
+  } else {
+    process.env.PI_CODING_AGENT_DIR = originalAgentDir;
+  }
 });
 
 describe('harness server soft restart', () => {

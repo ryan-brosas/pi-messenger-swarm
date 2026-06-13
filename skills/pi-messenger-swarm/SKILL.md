@@ -124,6 +124,8 @@ pi-messenger-swarm spawn --task-id task-1 --role Debugger "Fix the race conditio
 pi-messenger-swarm spawn --agent-file agents/researcher.md "Analyze the codebase"
 pi-messenger-swarm spawn --objective "Find bugs" --context "Focus on auth" --role Auditor "Review code"
 pi-messenger-swarm spawn --message-file /tmp/mission.txt --role Researcher
+pi-messenger-swarm spawn --role Planner --model "openai-codex/gpt-5.5" --task-id task-1 "Plan the refactor"
+pi-messenger-swarm spawn --agent-file agents/executor.md --model "makora/deepseek-ai/DeepSeek-V4-Flash" --task-id task-2 "Override model from file"
 pi-messenger-swarm spawn list
 pi-messenger-swarm spawn history
 pi-messenger-swarm spawn stop <id>
@@ -156,7 +158,41 @@ Frontmatter fields (all optional):
 
 If the file has no frontmatter, the entire file content is used as the system prompt with `role` defaulting to `Subagent`.
 
-CLI flags override frontmatter values — for example, `--role` overrides `role:`, and positional mission text overrides `objective:`.
+CLI flags override frontmatter values — for example, `--role` overrides `role:`, `--model` overrides `model:`, and positional mission text overrides `objective:`.
+
+#### Model selection (`--model`)
+
+The `--model` flag selects which LLM provider/model the spawned agent uses. Format: `provider/model` (e.g. `makora/zai-org/GLM-5.1-FP8`). The provider and model are passed to `pi --provider ... --model ...` when spawning the subagent process.
+
+If no `--model` is specified:
+
+- `--agent-file` frontmatter `model:` is used if present
+- Otherwise the default model from `~/.pi/agent/settings.json` is inherited
+
+CLI `--model` always takes priority over agent-file frontmatter.
+
+#### Per-provider concurrency (`providerConcurrency`)
+
+Two-level concurrency control prevents thundering-herd API failures:
+
+1. **Global limit** (`maxConcurrentSpawns`) — total agents across all providers
+2. **Per-provider limit** (`providerConcurrency`) — max agents per provider
+
+Both are enforced. A spawn is rejected if it would exceed either limit. Configure in `.pi/pi-messenger.json` or `~/.pi/agent/pi-messenger.json`:
+
+```json
+{
+  "maxConcurrentSpawns": 10,
+  "providerConcurrency": {
+    "makora": 6,
+    "lilac": 4,
+    "openai-codex": 4,
+    "xiaomi-token-plan-sgp": 4
+  }
+}
+```
+
+When a spawn is rejected, the error message indicates which limit was hit (global or per-provider) and which provider.
 
 ### Server management
 

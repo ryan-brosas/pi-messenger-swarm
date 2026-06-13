@@ -8,8 +8,8 @@ import { summaryLine } from './_utils.js';
 export function executeSwarmStatus(cwd: string, channelId: string, sessionId: string) {
   cleanupExitedSpawned(cwd, sessionId);
   reconcileSpawnedAgents(cwd, sessionId);
-  const tasks = taskStore.getTasks(cwd, sessionId);
-  const summary = taskStore.getSummary(cwd, sessionId);
+  const tasks = taskStore.getTasks(cwd, sessionId, normalizeChannelId(channelId));
+  const summary = taskStore.getSummary(cwd, sessionId, normalizeChannelId(channelId));
   const allAgents = listSpawnedHistory(cwd, sessionId);
   const runningAgents = allAgents.filter((a) => a.status === 'running');
   const completedCount = allAgents.filter((a) => a.status === 'completed').length;
@@ -37,7 +37,7 @@ export function executeSwarmStatus(cwd: string, channelId: string, sessionId: st
   const lines: string[] = [
     `# Agent Swarm ${channelLabel}`,
     '',
-    `Summary: ${summaryLine(cwd, sessionId)}`,
+    `Summary: ${summaryLine(cwd, sessionId, normalizeChannelId(channelId))}`,
     '',
   ];
 

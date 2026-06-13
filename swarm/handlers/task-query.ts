@@ -4,7 +4,7 @@ import * as taskStore from '../task-store.js';
 import { summaryLine } from './_utils.js';
 
 export function taskList(cwd: string, channelId: string, sessionId: string) {
-  const tasks = taskStore.getTasks(cwd, sessionId);
+  const tasks = taskStore.getTasks(cwd, sessionId, normalizeChannelId(channelId));
   if (tasks.length === 0) {
     return result(
       `No tasks yet in ${displayChannelLabel(channelId)}. Create one with task.create.`,
@@ -15,7 +15,7 @@ export function taskList(cwd: string, channelId: string, sessionId: string) {
   const lines: string[] = [
     `# Swarm Tasks ${displayChannelLabel(channelId)}`,
     '',
-    `Summary: ${summaryLine(cwd, sessionId)}`,
+    `Summary: ${summaryLine(cwd, sessionId, normalizeChannelId(channelId))}`,
     '',
   ];
   for (const task of tasks) {
@@ -59,10 +59,17 @@ export function taskShow(
   const spec = taskStore.getTaskSpec(cwd, sessionId, task.id) ?? '*No spec*';
   const progress = taskStore.getTaskProgress(cwd, sessionId, task.id);
 
+  const taskChannel = task.channel ?? normalizeChannelId(channelId);
+  const channelMismatch =
+    task.channel && normalizeChannelId(task.channel) !== normalizeChannelId(channelId)
+      ? `Current view: ${displayChannelLabel(channelId)}`
+      : undefined;
+
   const lines: string[] = [
     `# ${task.id}: ${task.title}`,
     '',
-    `Channel: ${displayChannelLabel(channelId)}`,
+    `Channel: ${displayChannelLabel(taskChannel)}`,
+    ...(channelMismatch ? [channelMismatch] : []),
     `Status: ${task.status}`,
     task.claimed_by ? `Claimed by: ${task.claimed_by}` : 'Claimed by: (none)',
     task.depends_on.length > 0 ? `Depends on: ${task.depends_on.join(', ')}` : 'Depends on: (none)',
@@ -84,7 +91,12 @@ export function taskShow(
 }
 
 export function taskStalled(cwd: string, channelId: string, sessionId: string) {
-  const stalled = taskStore.getStalledTasks(cwd, sessionId);
+  const stalled = taskStore.getStalledTasks(
+    cwd,
+    sessionId,
+    undefined,
+    normalizeChannelId(channelId)
+  );
   if (stalled.length === 0) {
     return result('No stalled tasks.', {
       mode: 'task.stalled',
@@ -117,7 +129,7 @@ export function taskStalled(cwd: string, channelId: string, sessionId: string) {
 }
 
 export function taskReady(cwd: string, channelId: string, sessionId: string) {
-  const ready = taskStore.getReadyTasks(cwd, sessionId);
+  const ready = taskStore.getReadyTasks(cwd, sessionId, normalizeChannelId(channelId));
   if (ready.length === 0) {
     return result('No ready tasks right now.', {
       mode: 'task.ready',

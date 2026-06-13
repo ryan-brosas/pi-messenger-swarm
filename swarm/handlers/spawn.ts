@@ -1,13 +1,16 @@
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { MessengerActionParams } from '../../action-types.js';
 import type { MessengerState } from '../../lib.js';
 import { displayChannelLabel, normalizeChannelId } from '../../channel.js';
 import { result } from '../result.js';
 import { logFeedEvent } from '../../feed/index.js';
 import * as taskStore from '../task-store.js';
+import { loadAgentDefinition } from '../agent-loader.js';
 import {
   cleanupExitedSpawned,
   getRunningSpawnCount,
+  getRunningSpawnCountByProvider,
   listSpawned,
   listSpawnedHistory,
   reconcileSpawnedAgents,
@@ -17,19 +20,26 @@ import {
 import type { SpawnRequest } from '../types.js';
 import { formatRoleLabel } from '../labels.js';
 
+/** Extract provider from model string ("provider/model" -> "provider") */
+function extractProvider(model: string): string | null {
+  const slash = model.indexOf('/');
+  return slash > 0 ? model.slice(0, slash) : null;
+}
+
 export function executeSpawn(
   op: string | null,
   params: MessengerActionParams,
   state: MessengerState,
   cwd: string,
   sessionId: string,
-  maxConcurrentSpawns?: number
+  maxConcurrentSpawns?: number,
+  providerConcurrency?: Record<string, number>
 ) {
   cleanupExitedSpawned(cwd, sessionId);
   reconcileSpawnedAgents(cwd, sessionId);
 
   if (!op) {
-    return spawnCreate(params, state, cwd, sessionId, maxConcurrentSpawns);
+    return spawnCreate(params, state, cwd, sessionId, maxConcurrentSpawns, providerConcurrency);
   }
 
   if (op === 'list') {
@@ -173,7 +183,8 @@ function spawnCreate(
   state: MessengerState,
   cwd: string,
   sessionId: string,
-  maxConcurrentSpawns?: number
+  maxConcurrentSpawns?: number,
+  providerConcurrency?: Record<string, number>
 ) {
   // Guardrail: if the user has ready tasks but forgot --task-id, warn them
   // instead of letting an unbound agent float and accidentally claim/create
@@ -196,23 +207,63 @@ function spawnCreate(
     }
   }
 
-  // Enforce concurrency limit to prevent thundering-herd API failures.
+  // Enforce concurrency limits to prevent thundering-herd API failures.
+  // Two levels of control:
+  //   1. Global limit (maxConcurrentSpawns) — total running agents across all providers
+  //   2. Per-provider limit (providerConcurrency) — e.g. {"makora": 6, "lilac": 4}
   // When more subagents run than the provider supports concurrently,
   // excess agents hit rate limits and spin on retries — wasting tokens
   // and making the whole swarm appear stuck.
   const running = getRunningSpawnCount(cwd);
-  const limit = maxConcurrentSpawns ?? 6;
-  if (running >= limit) {
+  const globalLimit = maxConcurrentSpawns ?? 6;
+  if (running >= globalLimit) {
     return result(
-      `Error: ${running} subagent${running === 1 ? '' : 's'} already running (limit: ${limit}). ` +
+      `Error: ${running} subagent${running === 1 ? '' : 's'} already running (global limit: ${globalLimit}). ` +
         `Wait for one to complete or increase maxConcurrentSpawns in .pi/pi-messenger.json.`,
       {
         mode: 'spawn',
         error: 'concurrency_limit',
         running,
-        limit,
+        limit: globalLimit,
+        limitType: 'global',
       }
     );
+  }
+
+  // Per-provider concurrency check.
+  // Resolve the model from CLI --model or agent-file frontmatter.
+  // We need to check BEFORE spawning, so if agentFile is set, load its model.
+  let resolvedModelForCheck = params.model;
+  if (!resolvedModelForCheck && params.agentFile) {
+    try {
+      const def = loadAgentDefinition(path.resolve(cwd, params.agentFile));
+      if (def.model) resolvedModelForCheck = def.model;
+    } catch {
+      // Best effort — if agent file can't be loaded, skip per-provider check
+    }
+  }
+  if (providerConcurrency && Object.keys(providerConcurrency).length > 0 && resolvedModelForCheck) {
+    const provider = extractProvider(resolvedModelForCheck);
+    if (provider && providerConcurrency[provider] !== undefined) {
+      const providerCounts = getRunningSpawnCountByProvider(cwd);
+      const providerRunning = providerCounts[provider] || 0;
+      const providerLimit = providerConcurrency[provider];
+      if (providerRunning >= providerLimit) {
+        return result(
+          `Error: ${providerRunning} subagent${providerRunning === 1 ? '' : 's'} already running on ${provider} (limit: ${providerLimit}). ` +
+            `Wait for one to complete or increase providerConcurrency.${provider} in .pi/pi-messenger.json.`,
+          {
+            mode: 'spawn',
+            error: 'provider_concurrency_limit',
+            running: providerRunning,
+            limit: providerLimit,
+            limitType: 'provider',
+            provider,
+            providerCounts,
+          }
+        );
+      }
+    }
   }
 
   // --message-file: read mission text from a file to avoid shell interpolation
@@ -234,6 +285,7 @@ function spawnCreate(
   if (params.agentFile) {
     const request: SpawnRequest = {
       agentFile: params.agentFile,
+      model: params.model, // CLI --model override takes precedence over agent-file frontmatter
       objective: params.objective,
       message,
       context: params.context,
@@ -278,6 +330,7 @@ function spawnCreate(
   const request: SpawnRequest = {
     role,
     persona: params.persona,
+    model: params.model, // CLI --model override
     objective,
     context: params.context,
     taskId: params.taskId,

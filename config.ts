@@ -29,6 +29,7 @@ export interface MessengerConfig {
   autoOverlay: boolean;
   swarmEventsInFeed: boolean;
   maxConcurrentSpawns: number;
+  providerConcurrency: Record<string, number>;
 }
 
 const DEFAULT_CONFIG: MessengerConfig = {
@@ -47,6 +48,7 @@ const DEFAULT_CONFIG: MessengerConfig = {
   autoOverlay: true,
   swarmEventsInFeed: true,
   maxConcurrentSpawns: 6,
+  providerConcurrency: {},
 };
 
 function readJsonFile(path: string): Record<string, unknown> | null {
@@ -180,6 +182,15 @@ export function loadConfig(cwd: string): MessengerConfig {
       typeof merged.maxConcurrentSpawns === 'number' && merged.maxConcurrentSpawns > 0
         ? merged.maxConcurrentSpawns
         : DEFAULT_CONFIG.maxConcurrentSpawns,
+    providerConcurrency:
+      typeof (merged as Record<string, unknown>).providerConcurrency === 'object' &&
+      (merged as Record<string, unknown>).providerConcurrency !== null
+        ? (Object.fromEntries(
+            Object.entries(
+              (merged as Record<string, unknown>).providerConcurrency as Record<string, unknown>
+            ).filter(([, v]) => typeof v === 'number' && (v as number) > 0)
+          ) as Record<string, number>)
+        : DEFAULT_CONFIG.providerConcurrency,
   };
 
   if (merged.contextMode === 'none') {

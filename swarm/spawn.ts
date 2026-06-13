@@ -3,6 +3,41 @@ import * as path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
+
+// ── Spawn completion callbacks ─────────────────────────────────────────────
+// External modules (e.g. team handler) can register callbacks to be notified
+// when a spawned agent completes. This enables auto-advancing team waves
+// without creating circular dependencies between spawn.ts and team.ts.
+
+type SpawnCompletionCallback = (
+  agentId: string,
+  taskId: string | undefined,
+  status: 'completed' | 'failed' | 'stopped',
+  cwd: string,
+  sessionId: string
+) => void;
+
+const completionCallbacks: SpawnCompletionCallback[] = [];
+
+export function onSpawnCompletion(cb: SpawnCompletionCallback): void {
+  completionCallbacks.push(cb);
+}
+
+function notifyCompletion(
+  agentId: string,
+  taskId: string | undefined,
+  status: 'completed' | 'failed' | 'stopped',
+  cwd: string,
+  sessionId: string
+): void {
+  for (const cb of completionCallbacks) {
+    try {
+      cb(agentId, taskId, status, cwd, sessionId);
+    } catch {
+      // Best effort — don't let callback errors break spawn tracking
+    }
+  }
+}
 import { spawn, type ChildProcess } from 'node:child_process';
 import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import { generateMemorableName } from '../lib.js';
@@ -444,6 +479,9 @@ function attachHandlers(
     });
 
     generateAgentFile(state.cwd, sessionId, runtime.record);
+
+    // Notify completion listeners (e.g. team auto-advance)
+    notifyCompletion(state.id, state.request.taskId, status, state.cwd, sessionId);
   });
 }
 
@@ -481,12 +519,16 @@ export function spawnSubagent(
     objective = request.objective || request.message || '';
   }
 
+  // Model resolution: CLI --model takes priority over agent-file frontmatter.
+  // This lets users override the model on the command line without editing files.
+  const resolvedModel = request.model || agentFileModel;
+
   const record: SpawnedAgent = {
     id,
     cwd,
     name,
     role,
-    model: agentFileModel,
+    model: resolvedModel,
     persona: request.persona,
     objective,
     context: request.context,
@@ -527,7 +569,7 @@ export function spawnSubagent(
     stderr: '',
   };
 
-  const args = createArgs(spawnState, agentFileModel);
+  const args = createArgs(spawnState, resolvedModel);
   const promptTmpDir = (args as any)._promptTmpDir as string | null;
 
   const proc = spawn('pi', args, {
@@ -782,6 +824,34 @@ export function getRunningSpawnCount(cwd?: string): number {
     }
   }
   return count;
+}
+
+/**
+ * Count running spawned agents grouped by provider.
+ * Provider is extracted from the model field (format: "provider/model").
+ * Agents without a model field are counted under "default".
+ */
+/** Extract provider from model string ("provider/model" -> "provider") */
+function extractProvider(model: string): string | null {
+  const slash = model.indexOf('/');
+  return slash > 0 ? model.slice(0, slash) : null;
+}
+
+export function getRunningSpawnCountByProvider(cwd?: string): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const runtime of runtimes.values()) {
+    if (cwd && runtime.record.cwd !== cwd) continue;
+    if (runtime.record.status !== 'running') continue;
+    const isRunning = runtime.detached
+      ? runtime.record.pid && isProcessAlive(runtime.record.pid)
+      : runtime.process.exitCode === null;
+    if (!isRunning) continue;
+
+    const model = runtime.record.model;
+    const provider = extractProvider(model) || 'default';
+    counts[provider] = (counts[provider] || 0) + 1;
+  }
+  return counts;
 }
 
 export function clearSpawnStateForTests(): void {

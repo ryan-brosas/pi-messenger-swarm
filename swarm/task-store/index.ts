@@ -92,6 +92,11 @@ function useBr(cwd: string): boolean {
   return isBrAvailable(cwd);
 }
 
+function filterTasksByChannel(tasks: SwarmTask[], channelId?: string): SwarmTask[] {
+  if (!channelId) return tasks;
+  return tasks.filter((task) => task.channel === channelId);
+}
+
 /** Check whether the cwd uses br beads backend */
 export function useBrBackend(cwd: string): boolean {
   return useBr(cwd);
@@ -200,14 +205,14 @@ export function appendTaskProgress(
 
 // ── Queries (getTasks, getTask, etc.) ──────────────────────────────────────
 
-export function getTasks(cwd: string, sessionId: string): SwarmTask[] {
-  if (useBr(cwd)) return listTasksBr(cwd, sessionId);
-  return jsonlQ.getTasks(cwd, sessionId);
+export function getTasks(cwd: string, sessionId: string, channelId?: string): SwarmTask[] {
+  if (useBr(cwd)) return listTasksBr(cwd, sessionId, channelId);
+  return filterTasksByChannel(jsonlQ.getTasks(cwd, sessionId), channelId);
 }
 
-export function getAllTasks(cwd: string, sessionId: string): SwarmTask[] {
-  if (useBr(cwd)) return listTasksBr(cwd, sessionId); // br doesn't filter archived differently
-  return jsonlQ.getAllTasks(cwd, sessionId);
+export function getAllTasks(cwd: string, sessionId: string, channelId?: string): SwarmTask[] {
+  if (useBr(cwd)) return listTasksBr(cwd, sessionId, channelId); // br doesn't filter archived differently
+  return filterTasksByChannel(jsonlQ.getAllTasks(cwd, sessionId), channelId);
 }
 
 export function getTask(cwd: string, sessionId: string, taskId: string): SwarmTask | undefined {
@@ -220,8 +225,9 @@ export function taskExists(cwd: string, sessionId: string, taskId: string): bool
   return jsonlQ.taskExists(cwd, sessionId, taskId);
 }
 
-export function getSummary(cwd: string, sessionId: string): SwarmSummary {
-  if (useBr(cwd)) return getSummaryBr(cwd, sessionId);
+export function getSummary(cwd: string, sessionId: string, channelId?: string): SwarmSummary {
+  if (useBr(cwd)) return getSummaryBr(cwd, sessionId, channelId);
+  if (channelId) return getSummaryForTasks(getTasks(cwd, sessionId, channelId));
   return jsonlQ.getSummary(cwd, sessionId);
 }
 
@@ -229,8 +235,9 @@ export function getSummaryForTasks(tasks: SwarmTask[]): SwarmSummary {
   return jsonlQ.getSummaryForTasks(tasks);
 }
 
-export function getReadyTasks(cwd: string, sessionId: string): SwarmTask[] {
-  if (useBr(cwd)) return getReadyTasksBr(cwd, sessionId);
+export function getReadyTasks(cwd: string, sessionId: string, channelId?: string): SwarmTask[] {
+  if (useBr(cwd)) return getReadyTasksBr(cwd, sessionId, channelId);
+  if (channelId) return getReadyTasksForTasks(getTasks(cwd, sessionId, channelId));
   return jsonlQ.getReadyTasks(cwd, sessionId);
 }
 
@@ -238,9 +245,15 @@ export function getReadyTasksForTasks(tasks: SwarmTask[]): SwarmTask[] {
   return jsonlQ.getReadyTasksForTasks(tasks);
 }
 
-export function getStalledTasks(cwd: string, sessionId: string, stallMs?: number): SwarmTask[] {
-  if (useBr(cwd)) return getStalledTasksBr(cwd, sessionId, stallMs);
-  return jsonlQ.getStalledTasks(cwd, sessionId, stallMs);
+export function getStalledTasks(
+  cwd: string,
+  sessionId: string,
+  stallMs?: number,
+  channelId?: string
+): SwarmTask[] {
+  if (useBr(cwd)) return getStalledTasksBr(cwd, sessionId, stallMs, channelId);
+  const stalled = jsonlQ.getStalledTasks(cwd, sessionId, stallMs);
+  return filterTasksByChannel(stalled, channelId);
 }
 
 export function getTaskSpec(cwd: string, sessionId: string, taskId: string): string | null {

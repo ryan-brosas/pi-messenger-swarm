@@ -7,7 +7,7 @@ import type { MessengerState, Dirs, AgentMailMessage, NameThemeConfig } from './
 import * as handlers from './handlers.js';
 import type { MessengerActionParams } from './action-types.js';
 import { result } from './swarm/result.js';
-import { executeSpawn, executeSwarmStatus, executeTask } from './swarm/handlers.js';
+import { executeSpawn, executeSwarmStatus, executeTask, executeTeam } from './swarm/handlers.js';
 import { getEffectiveSessionId } from './store/shared.js';
 
 type DeliverFn = (msg: AgentMailMessage) => void;
@@ -19,6 +19,7 @@ export interface RouterConfig {
   nameTheme?: NameThemeConfig;
   feedRetention?: number;
   maxConcurrentSpawns?: number;
+  providerConcurrency?: Record<string, number>;
 }
 
 export async function executeAction(
@@ -220,7 +221,26 @@ export async function executeAction(
       return handlers.executeChannels(state, dirs, cwd, params.showAll ? true : undefined);
 
     case 'spawn':
-      return executeSpawn(op, params, state, cwd, sessionId, config?.maxConcurrentSpawns);
+      return executeSpawn(
+        op,
+        params,
+        state,
+        cwd,
+        sessionId,
+        config?.maxConcurrentSpawns,
+        config?.providerConcurrency
+      );
+
+    case 'team':
+      return executeTeam(
+        op,
+        params,
+        state,
+        cwd,
+        sessionId,
+        config?.maxConcurrentSpawns,
+        config?.providerConcurrency
+      );
 
     default:
       return result(`Unknown action: ${action}`, {

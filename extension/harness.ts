@@ -81,7 +81,11 @@ export function installShellAlias(): void {
 
     const argsStr = prefixArgs.length > 0 ? ` ${prefixArgs.join(' ')}` : '';
     const wrapperContent = `#!/bin/sh
+CALLER_CWD="$PWD"
 cd "${cwd}" 2>/dev/null
+if [ -z "${'${PI_MESSENGER_CWD:-}'}" ]; then
+  export PI_MESSENGER_CWD="$CALLER_CWD"
+fi
 exec ${command}${argsStr} "${cliPath}" "$@"
 `;
 
